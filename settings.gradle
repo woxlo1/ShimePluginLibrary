@@ -1,0 +1,6 @@
+rootProject.name = 'ShimePluginLibrary'
+
+include 'ShimePlugin'
+include 'ShimePluginLibrary'
+include 'ShimePluginCommand'
+include 'ShimePluginNMS'

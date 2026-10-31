@@ -1,0 +1,6 @@
+name: ShimePluginLibrary
+version: '${version}'
+main: shimeserver.shimepluginlibrary.ShimePlugin
+api-version: '1.20'
+author: shimeserver
+description: A modular development library for Paper plugins.
