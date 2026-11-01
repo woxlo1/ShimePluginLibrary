@@ -1,0 +1,5 @@
+prefix: '<gray>[Shime]</gray> '
+command.reload.success: '<green>設定ファイルと言語ファイルを再読み込みしました。</green>'
+command.status.header: '<gold>ShimePluginLibrary の状態</gold>'
+command.nms.header: '<gold>NMS 対応状況レポート</gold>'
+command.error: '<red>処理に失敗しました。サーバーログを確認してください。</red>'

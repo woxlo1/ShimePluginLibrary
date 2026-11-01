@@ -1,0 +1,5 @@
+prefix: '<gray>[Shime]</gray> '
+command.reload.success: '<green>Configuration and language files reloaded.</green>'
+command.status.header: '<gold>ShimePluginLibrary status</gold>'
+command.nms.header: '<gold>NMS capability report</gold>'
+command.error: '<red>The operation failed. Check the server log for details.</red>'
