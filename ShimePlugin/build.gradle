@@ -7,7 +7,7 @@ dependencies {
     implementation project(':ShimePluginLibrary')
     implementation project(':ShimePluginCommand')
     implementation project(':ShimePluginNMS')
-    compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
+    compileOnly "io.papermc.paper:paper-api:${rootProject.ext.paperVersion}"
 }
 
 processResources {
@@ -19,6 +19,7 @@ processResources {
 
 shadowJar {
     archiveClassifier.set('')
+    mergeServiceFiles()
 }
 
 tasks.named('build') {

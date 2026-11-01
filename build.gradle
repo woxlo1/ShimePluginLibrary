@@ -3,9 +3,16 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
 }
 
+ext {
+    paperVersion = '1.20.6-R0.1-SNAPSHOT'
+    kotlinVersion = '2.0.21'
+    junitVersion = '5.10.2'
+}
+
 allprojects {
     group = 'shimeserver'
     version = '1.0.0'
+
     repositories {
         mavenCentral()
         maven { url = 'https://repo.papermc.io/repository/maven-public/' }
@@ -13,9 +20,32 @@ allprojects {
 }
 
 subprojects {
+    apply plugin: 'org.jetbrains.kotlin.jvm'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
     tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
         compilerOptions {
             jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+            freeCompilerArgs.add('-Xjvm-default=all')
         }
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        testLogging {
+            events 'failed', 'skipped'
+            exceptionFormat 'full'
+        }
+    }
+
+    dependencies {
+        testImplementation "org.jetbrains.kotlin:kotlin-test-junit5:${rootProject.ext.kotlinVersion}"
+        testImplementation "org.junit.jupiter:junit-jupiter:${rootProject.ext.junitVersion}"
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 }
