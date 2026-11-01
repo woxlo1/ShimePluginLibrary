@@ -1,0 +1,28 @@
+# ShimePluginLibrary のメイン設定ファイル
+config-version: 1
+
+# コンソールメッセージとプレイヤー向けフォールバックに使用するロケール。
+# 言語ファイルは messages/ ディレクトリに配置します。
+language: en_US
+
+# true の場合、言語ファイルから読み込んだすべてのメッセージの先頭に "prefix" の値を付けます。
+use-prefix: true
+
+# ライブラリの詳細なデバッグ出力を有効にします。通常の運用では有効にしないでください。
+debug: false
+
+database:
+  # false の場合、経済機能などのデータベース対応サービスはインメモリのフォールバックを使用します。
+  enabled: false
+  # sqlite、mysql、mariadb のいずれか
+  type: sqlite
+  # SQLite のファイル名。このプラグインのデータフォルダーからの相対パスで指定します。
+  # データフォルダー外を指すパスは拒否されます。
+  sqlite-file: data.db
+  host: 127.0.0.1
+  port: 3306
+  name: minecraft
+  username: root
+  password: ''
+  pool-size: 6
+  use-ssl: false

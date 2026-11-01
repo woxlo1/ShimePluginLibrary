@@ -2,5 +2,15 @@ name: ShimePluginLibrary
 version: '${version}'
 main: shimeserver.shimepluginlibrary.ShimePlugin
 api-version: '1.20'
-author: shimeserver
-description: A modular development library for Paper plugins.
+authors: [shimeserver]
+description: Paper プラグイン開発向けのモジュール式共通ライブラリ。
+commands:
+  shimepluginlibrary:
+    description: ShimePluginLibrary の管理コマンド。
+    usage: /shimepluginlibrary <status|reload|nms|services>
+    aliases: [spl, shimelib]
+    permission: shimepluginlibrary.admin
+permissions:
+  shimepluginlibrary.admin:
+    description: ShimePluginLibrary の管理コマンドの使用を許可します。
+    default: op

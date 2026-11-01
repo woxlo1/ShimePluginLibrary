@@ -1,0 +1,16 @@
+name: ShimeSamplePlugin
+version: '1.0.0'
+main: shimeserver.shimesample.ShimeSamplePlugin
+api-version: '1.20'
+authors: [shimeserver]
+description: ShimePluginLibrary を利用するサンプルプラグイン。
+depend: [ShimePluginLibrary]
+commands:
+  shimesample:
+    description: サンプルコマンド。
+    usage: /shimesample
+    permission: shimesample.use
+permissions:
+  shimesample.use:
+    description: サンプルコマンドの使用を許可します。
+    default: true
