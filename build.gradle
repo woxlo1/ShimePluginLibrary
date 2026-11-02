@@ -11,7 +11,7 @@ ext {
 
 allprojects {
     group = 'shimeserver'
-    version = '1.0.0'
+    version = rootProject.findProperty('releaseVersion') ?: '1.0.0'
 
     repositories {
         mavenCentral()
@@ -47,5 +47,57 @@ subprojects {
         testImplementation "org.jetbrains.kotlin:kotlin-test-junit5:${rootProject.ext.kotlinVersion}"
         testImplementation "org.junit.jupiter:junit-jupiter:${rootProject.ext.junitVersion}"
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+}
+
+configure(subprojects.findAll { it.name in ['ShimePluginLibrary', 'ShimePluginCommand', 'ShimePluginNMS'] }) {
+    apply plugin: 'maven-publish'
+
+    java {
+        withSourcesJar()
+    }
+
+    def githubUser = System.getenv('GITHUB_ACTOR') ?: project.findProperty('gpr.user')
+    def githubToken = System.getenv('GITHUB_TOKEN') ?: project.findProperty('gpr.key')
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+                // GitHub Packages は大文字を含む artifactId を拒否するため、公開時のみ小文字にする
+                artifactId = project.name.toLowerCase(Locale.ROOT)
+
+                pom {
+                    name = project.name
+                    description = "ShimePluginLibrary module: ${project.name}"
+                    url = 'https://github.com/woxlo1/ShimePluginLibrary'
+                    licenses {
+                        license {
+                            name = 'MIT License'
+                            url = 'https://opensource.org/licenses/MIT'
+                        }
+                    }
+                    scm {
+                        connection = 'scm:git:https://github.com/woxlo1/ShimePluginLibrary.git'
+                        developerConnection = 'scm:git:ssh://git@github.com/woxlo1/ShimePluginLibrary.git'
+                        url = 'https://github.com/woxlo1/ShimePluginLibrary'
+                    }
+                }
+            }
+        }
+
+        repositories {
+            maven {
+                name = 'GitHubPackages'
+                url = uri('https://maven.pkg.github.com/woxlo1/ShimePluginLibrary')
+
+                if (githubUser != null && githubToken != null) {
+                    credentials {
+                        username = githubUser.toString()
+                        password = githubToken.toString()
+                    }
+                }
+            }
+        }
     }
 }

@@ -48,6 +48,37 @@ Paper API は `compileOnly` のため JAR には含まれません。
 > ASCII のみのパス（ジャンクションやシンボリックリンク）からビルドしてください。
 > これは Gradle のワーカー引数ファイルの文字コードに起因する環境依存の問題です。
 
+## GitHub Packages からの利用
+
+`ShimePluginLibrary`、`ShimePluginCommand`、`ShimePluginNMS` は GitHub Packages の Maven リポジトリへ
+公開できます。公開は `v*` タグの push、または GitHub Actions の手動実行で行われます。
+バージョンはタグ名から `v` を除いた値（例: `v1.2.3` → `1.2.3`）になります。
+
+利用側の `build.gradle`:
+
+```groovy
+repositories {
+    maven {
+        url = uri('https://maven.pkg.github.com/woxlo1/ShimePluginLibrary')
+        credentials {
+            username = System.getenv('GITHUB_ACTOR')
+            password = System.getenv('GITHUB_TOKEN')
+        }
+    }
+}
+
+dependencies {
+    implementation 'shimeserver:shimepluginlibrary:1.2.3'
+    implementation 'shimeserver:shimeplugincommand:1.2.3'
+    implementation 'shimeserver:shimepluginnms:1.2.3'
+}
+```
+
+GitHub Packages は artifactId に大文字を許可しないため、公開される座標は小文字になります。
+
+GitHub Packages から取得するには `read:packages` 権限を持つトークンが必要です。
+ローカルでバージョンを指定してビルドする場合は `--project-prop releaseVersion=1.2.3` を付けます。
+
 ## 導入
 
 1. `ShimePlugin/build/libs/ShimePlugin-1.0.0.jar` をサーバーの `plugins/` に配置します。
