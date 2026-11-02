@@ -21,6 +21,9 @@ class ShimeStorageException(message: String, cause: Throwable? = null) : ShimeEx
 /** データベース操作が失敗した場合にスローされる。 */
 class ShimeDatabaseException(message: String, cause: Throwable? = null) : ShimeException(message, cause)
 
+/** 楽観的ロックのバージョン不一致により更新が競合した場合にスローされる。 */
+class ShimeOptimisticLockException(message: String, cause: Throwable? = null) : ShimeException(message, cause)
+
 /** 呼び出し元がアクセスを必要とする状況で権限チェックが失敗した場合にスローされる。 */
 class ShimePermissionException(message: String, cause: Throwable? = null) : ShimeException(message, cause)
 

@@ -17,6 +17,7 @@ class ShimeConfigManager(
     private val logger: ShimeLogger
 ) : ShimeAbstractService(SERVICE_NAME) {
     private val configs = ConcurrentHashMap<String, ShimeConfig>()
+    private val schemas = ConcurrentHashMap<String, ShimeConfigSchema>()
 
     override fun onInitialize(context: ShimeContext) {
         // 設定はライブラリおよび機能マネージャーによって登録される。
@@ -75,6 +76,66 @@ class ShimeConfigManager(
     }
 
     fun names(): List<String> = configs.keys.sorted()
+
+    /**
+     * 設定ファイルに対応するスキーマを登録する。
+     *
+     * スキーマは設定ファイルの登録前でも登録できます。設定がまだ存在しない場合、[validate] は
+     * 明確な例外をスローします。
+     */
+    fun registerSchema(configName: String, schema: ShimeConfigSchema, replace: Boolean = false) {
+        require(configName.isNotBlank()) { "Configuration name must not be blank." }
+        if (replace) {
+            schemas[configName] = schema
+            return
+        }
+        val previous = schemas.putIfAbsent(configName, schema)
+        if (previous != null) {
+            throw ShimeConfigurationException(
+                "Schema for configuration '$configName' is already registered. Use replace=true only when intentional."
+            )
+        }
+    }
+
+    fun schema(configName: String): ShimeConfigSchema? = schemas[configName]
+
+    /**
+     * 指定した設定をスキーマで検証する。
+     *
+     * @throws ShimeConfigurationException 設定またはスキーマが登録されていない場合。
+     */
+    fun validate(configName: String): ShimeConfigValidationReport {
+        val config = require(configName)
+        val configSchema = schema(configName) ?: throw ShimeConfigurationException(
+            "No schema is registered for configuration '$configName'."
+        )
+        val report = configSchema.validate(config)
+        if (!report.isValid) {
+            logger.warn(ShimeLogCategory.CONFIG, report.summary())
+        }
+        return report
+    }
+
+    /** 登録済みのすべてのスキーマで検証する。設定が存在しないスキーマはスキップされる。 */
+    fun validateAll(): Map<String, ShimeConfigValidationReport> {
+        val reports = LinkedHashMap<String, ShimeConfigValidationReport>()
+        schemas.keys.sorted().forEach { configName ->
+            val config = configs[configName]
+            if (config == null) {
+                logger.warn(ShimeLogCategory.CONFIG, "Schema '$configName' has no registered configuration.")
+                return@forEach
+            }
+            val report = schemas.getValue(configName).validate(config)
+            if (!report.isValid) {
+                logger.warn(ShimeLogCategory.CONFIG, report.summary())
+            }
+            reports[configName] = report
+        }
+        return reports
+    }
+
+    /** スキーマが登録されている設定名の一覧。 */
+    fun schemaNames(): List<String> = schemas.keys.sorted()
 
     companion object {
         const val SERVICE_NAME = "config"

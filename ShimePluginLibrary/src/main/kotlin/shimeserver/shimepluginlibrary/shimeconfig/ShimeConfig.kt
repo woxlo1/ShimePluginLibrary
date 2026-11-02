@@ -11,6 +11,7 @@ import shimeserver.shimepluginlibrary.shimevalidation.ShimeValidation
 import java.io.File
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -28,6 +29,7 @@ class ShimeConfig(
 ) {
     private val lock = ReentrantLock()
     private var yaml: YamlConfiguration = YamlConfiguration()
+    private val listeners = CopyOnWriteArrayList<ShimeConfigListener>()
 
     @Volatile
     private var loaded = false
@@ -37,23 +39,29 @@ class ShimeConfig(
     val isLoaded: Boolean
         get() = loaded
 
-    fun load(): ShimeConfig = lock.withLock {
-        try {
-            if (!file.exists()) {
-                createFromResource()
+    fun load(): ShimeConfig {
+        val changes = ArrayList<ShimeConfigChange>()
+        lock.withLock {
+            try {
+                val previous = snapshot()
+                if (!file.exists()) {
+                    createFromResource()
+                }
+                val loaded = YamlConfiguration.loadConfiguration(file)
+                applyEmbeddedDefaults(loaded)
+                loaded.options().copyDefaults(true)
+                yaml = loaded
+                this.loaded = true
+                changes += diff(previous)
+                logger.debug(ShimeLogCategory.CONFIG, "Loaded configuration '$name'.")
+            } catch (exception: ShimeConfigurationException) {
+                throw exception
+            } catch (exception: Exception) {
+                throw ShimeConfigurationException("Could not load configuration '$name'.", exception)
             }
-            val loaded = YamlConfiguration.loadConfiguration(file)
-            applyEmbeddedDefaults(loaded)
-            loaded.options().copyDefaults(true)
-            yaml = loaded
-            this.loaded = true
-            logger.debug(ShimeLogCategory.CONFIG, "Loaded configuration '$name'.")
-            this
-        } catch (exception: ShimeConfigurationException) {
-            throw exception
-        } catch (exception: Exception) {
-            throw ShimeConfigurationException("Could not load configuration '$name'.", exception)
         }
+        changes.forEach(::notifyChange)
+        return this
     }
 
     fun reload(): ShimeConfig = load()
@@ -113,14 +121,38 @@ class ShimeConfig(
     fun getKeys(deep: Boolean = false): Set<String> = lock.withLock { yaml.getKeys(deep) }
 
     fun set(path: String, value: Any?) {
+        var previous: Any? = null
+        var changed = false
         lock.withLock {
+            previous = yaml.get(path)
+            changed = previous != value
             yaml.set(path, value)
+        }
+        if (changed) {
+            notifyChange(ShimeConfigChange(name, path, previous, value))
         }
     }
 
     fun remove(path: String) {
-        lock.withLock { yaml.set(path, null) }
+        set(path, null)
     }
+
+    /**
+     * 設定値の変更リスナーを登録する。
+     *
+     * リスナーは [set]、[remove]、[load]、[reload] による変更を受け取ります。[save] は値を変更しないため
+     * 通知しません。リスナーの例外はログに記録され、他のリスナーや設定操作を妨げません。
+     */
+    fun addListener(listener: ShimeConfigListener): ShimeConfigSubscription {
+        listeners += listener
+        return ShimeConfigSubscription { listeners.remove(listener) }
+    }
+
+    /** 登録済みのリスナーを解除する。 */
+    fun removeListener(listener: ShimeConfigListener): Boolean = listeners.remove(listener)
+
+    /** 登録されているリスナー数。診断用。 */
+    fun listenerCount(): Int = listeners.size
 
     fun setComments(path: String, comments: List<String>?) {
         lock.withLock { yaml.setComments(path, comments) }
@@ -167,6 +199,49 @@ class ShimeConfig(
             return ShimeValidation.requireInRange(value, "$name:$path", min, max)
         } catch (exception: Exception) {
             throw ShimeConfigurationException(exception.message ?: "Invalid value at '$path'.", exception)
+        }
+    }
+
+    /**
+     * 現在の葉ノードの値をスナップショットする。呼び出し側はロックを保持している必要がある。
+     */
+    private fun snapshot(): Map<String, Any?> {
+        val values = LinkedHashMap<String, Any?>()
+        yaml.getKeys(true).forEach { key ->
+            val value = yaml.get(key)
+            if (value !is ConfigurationSection) {
+                values[key] = value
+            }
+        }
+        return values
+    }
+
+    private fun diff(previous: Map<String, Any?>): List<ShimeConfigChange> {
+        val current = snapshot()
+        val changes = ArrayList<ShimeConfigChange>()
+        val keys = LinkedHashSet<String>(previous.keys)
+        keys.addAll(current.keys)
+        keys.forEach { key ->
+            val oldValue = previous[key]
+            val newValue = current[key]
+            if (oldValue != newValue) {
+                changes += ShimeConfigChange(name, key, oldValue, newValue)
+            }
+        }
+        return changes
+    }
+
+    private fun notifyChange(change: ShimeConfigChange) {
+        listeners.forEach { listener ->
+            try {
+                listener.onChange(change)
+            } catch (throwable: Throwable) {
+                logger.warn(
+                    ShimeLogCategory.CONFIG,
+                    "Configuration listener failed for '${change.configName}:${change.path}'.",
+                    throwable
+                )
+            }
         }
     }
 
