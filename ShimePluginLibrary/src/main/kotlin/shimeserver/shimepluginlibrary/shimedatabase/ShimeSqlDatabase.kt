@@ -5,24 +5,22 @@ import com.zaxxer.hikari.HikariDataSource
 import shimeserver.shimepluginlibrary.shimeexception.ShimeDatabaseException
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogger
-import java.math.BigDecimal
 import java.sql.Connection
-import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.SQLException
-import java.sql.Types
-import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * SQLite、MySQL、MariaDB 向けの HikariCP ベースの実装。
  *
  * SQLite は組み込みエンジンが同時書き込みをサポートしないため、単一接続で設定される。リモートデータベースは
- * 設定されたプールサイズを使用する。
+ * 設定されたプールサイズを使用する。各操作の実行時間と失敗件数は [stats] から取得でき、閾値を超えた
+ * 操作は SQL 本文やバインド値を含めずに警告として記録される。
  */
 class ShimeSqlDatabase(
     override val name: String,
@@ -32,6 +30,14 @@ class ShimeSqlDatabase(
     private val ready = AtomicBoolean(false)
     private var dataSource: HikariDataSource? = null
     private var executor: ExecutorService? = null
+
+    private val queryCount = AtomicLong()
+    private val updateCount = AtomicLong()
+    private val batchCount = AtomicLong()
+    private val transactionCount = AtomicLong()
+    private val failureCount = AtomicLong()
+    private val slowQueryCount = AtomicLong()
+    private val totalExecutionNanos = AtomicLong()
 
     override val type: ShimeDatabaseType
         get() = settings.type
@@ -49,7 +55,7 @@ class ShimeSqlDatabase(
                 driverClassName = settings.driverClassName
                 poolName = "shime-$name"
                 maximumPoolSize = if (settings.type == ShimeDatabaseType.SQLITE) 1 else settings.poolSize
-                minimumIdle = if (settings.type == ShimeDatabaseType.SQLITE) 1 else 1
+                minimumIdle = 1
                 connectionTimeout = settings.connectionTimeoutMillis
                 validationTimeout = settings.connectionTimeoutMillis.coerceAtMost(5_000)
                 maxLifetime = settings.maxLifetimeMillis
@@ -82,38 +88,42 @@ class ShimeSqlDatabase(
     override fun <T> query(sql: String, vararg params: Any?, mapper: (ResultSet) -> T): List<T> {
         requireReady("query")
         requireSql(sql)
-        try {
-            dataSource!!.connection.use { connection ->
-                connection.prepareStatement(sql).use { statement ->
-                    bind(statement, params)
-                    statement.queryTimeout = settings.queryTimeoutSeconds
-                    statement.executeQuery().use { resultSet ->
-                        val results = ArrayList<T>()
-                        while (resultSet.next()) {
-                            results.add(mapper(resultSet))
+        return measured(queryCount, "query") {
+            try {
+                dataSource!!.connection.use { connection ->
+                    connection.prepareStatement(sql).use { statement ->
+                        ShimeSqlBinder.bind(statement, params.toList())
+                        statement.queryTimeout = settings.queryTimeoutSeconds
+                        statement.executeQuery().use { resultSet ->
+                            val results = ArrayList<T>()
+                            while (resultSet.next()) {
+                                results.add(mapper(resultSet))
+                            }
+                            results
                         }
-                        return results
                     }
                 }
+            } catch (exception: SQLException) {
+                throw ShimeDatabaseException("Query failed on database '$name'.", exception)
             }
-        } catch (exception: SQLException) {
-            throw ShimeDatabaseException("Query failed on database '$name'.", exception)
         }
     }
 
     override fun update(sql: String, vararg params: Any?): Int {
         requireReady("update")
         requireSql(sql)
-        try {
-            dataSource!!.connection.use { connection ->
-                connection.prepareStatement(sql).use { statement ->
-                    bind(statement, params)
-                    statement.queryTimeout = settings.queryTimeoutSeconds
-                    return statement.executeUpdate()
+        return measured(updateCount, "update") {
+            try {
+                dataSource!!.connection.use { connection ->
+                    connection.prepareStatement(sql).use { statement ->
+                        ShimeSqlBinder.bind(statement, params.toList())
+                        statement.queryTimeout = settings.queryTimeoutSeconds
+                        statement.executeUpdate()
+                    }
                 }
+            } catch (exception: SQLException) {
+                throw ShimeDatabaseException("Update failed on database '$name'.", exception)
             }
-        } catch (exception: SQLException) {
-            throw ShimeDatabaseException("Update failed on database '$name'.", exception)
         }
     }
 
@@ -123,47 +133,58 @@ class ShimeSqlDatabase(
         if (batches.isEmpty()) {
             return IntArray(0)
         }
-        try {
-            dataSource!!.connection.use { connection ->
-                connection.prepareStatement(sql).use { statement ->
-                    statement.queryTimeout = settings.queryTimeoutSeconds
-                    for (parameters in batches) {
-                        bind(statement, parameters.toTypedArray())
-                        statement.addBatch()
+        return measured(batchCount, "batch update") {
+            try {
+                dataSource!!.connection.use { connection ->
+                    connection.prepareStatement(sql).use { statement ->
+                        statement.queryTimeout = settings.queryTimeoutSeconds
+                        for (parameters in batches) {
+                            ShimeSqlBinder.bind(statement, parameters)
+                            statement.addBatch()
+                        }
+                        statement.executeBatch()
                     }
-                    return statement.executeBatch()
                 }
+            } catch (exception: SQLException) {
+                throw ShimeDatabaseException("Batch update failed on database '$name'.", exception)
             }
-        } catch (exception: SQLException) {
-            throw ShimeDatabaseException("Batch update failed on database '$name'.", exception)
         }
+    }
+
+    override fun batchAsync(sql: String, batches: List<List<Any?>>): CompletableFuture<IntArray> {
+        val pool = executor ?: throw ShimeDatabaseException("Database '$name' is not initialized.")
+        return CompletableFuture.supplyAsync({ batch(sql, batches) }, pool)
     }
 
     override fun <T> transaction(block: (Connection) -> T): T {
         requireReady("transaction")
-        try {
-            dataSource!!.connection.use { connection ->
-                val previousAutoCommit = connection.autoCommit
-                connection.autoCommit = false
-                try {
-                    val result = block(connection)
-                    connection.commit()
-                    return result
-                } catch (throwable: Throwable) {
+        return measured(transactionCount, "transaction") {
+            try {
+                dataSource!!.connection.use { connection ->
+                    val previousAutoCommit = connection.autoCommit
+                    connection.autoCommit = false
                     try {
-                        connection.rollback()
-                    } catch (rollbackFailure: SQLException) {
-                        throwable.addSuppressed(rollbackFailure)
+                        val result = block(connection)
+                        connection.commit()
+                        result
+                    } catch (throwable: Throwable) {
+                        try {
+                            connection.rollback()
+                        } catch (rollbackFailure: SQLException) {
+                            throwable.addSuppressed(rollbackFailure)
+                        }
+                        throw throwable
+                    } finally {
+                        connection.autoCommit = previousAutoCommit
                     }
-                    throw throwable
-                } finally {
-                    connection.autoCommit = previousAutoCommit
                 }
+            } catch (exception: ShimeDatabaseException) {
+                throw exception
+            } catch (exception: shimeserver.shimepluginlibrary.shimeexception.ShimeException) {
+                throw exception
+            } catch (exception: Throwable) {
+                throw ShimeDatabaseException("Transaction failed on database '$name'.", exception)
             }
-        } catch (exception: ShimeDatabaseException) {
-            throw exception
-        } catch (exception: Throwable) {
-            throw ShimeDatabaseException("Transaction failed on database '$name'.", exception)
         }
     }
 
@@ -198,9 +219,22 @@ class ShimeSqlDatabase(
                 }
             } ?: false
         } catch (exception: SQLException) {
+            failureCount.incrementAndGet()
             logger.warn(ShimeLogCategory.DATABASE, "Health check failed for database '$name'.", exception)
             false
         }
+    }
+
+    override fun stats(): ShimeDatabaseStats {
+        return ShimeDatabaseStats(
+            queries = queryCount.get(),
+            updates = updateCount.get(),
+            batches = batchCount.get(),
+            transactions = transactionCount.get(),
+            failures = failureCount.get(),
+            slowQueries = slowQueryCount.get(),
+            totalExecutionNanos = totalExecutionNanos.get()
+        )
     }
 
     override fun close() {
@@ -226,16 +260,24 @@ class ShimeSqlDatabase(
         executor = null
     }
 
-    private fun bind(statement: PreparedStatement, params: Array<out Any?>) {
-        params.forEachIndexed { index, value ->
-            val position = index + 1
-            when (value) {
-                null -> statement.setNull(position, Types.NULL)
-                is UUID -> statement.setString(position, value.toString())
-                is BigDecimal -> statement.setBigDecimal(position, value)
-                is Enum<*> -> statement.setString(position, value.name)
-                is ByteArray -> statement.setBytes(position, value)
-                else -> statement.setObject(position, value)
+    private inline fun <T> measured(counter: AtomicLong, operation: String, block: () -> T): T {
+        val started = System.nanoTime()
+        try {
+            return block()
+        } catch (throwable: Throwable) {
+            failureCount.incrementAndGet()
+            throw throwable
+        } finally {
+            val elapsed = System.nanoTime() - started
+            counter.incrementAndGet()
+            totalExecutionNanos.addAndGet(elapsed)
+            val threshold = settings.slowQueryThresholdMillis
+            if (threshold > 0 && elapsed >= TimeUnit.MILLISECONDS.toNanos(threshold)) {
+                slowQueryCount.incrementAndGet()
+                logger.warn(
+                    ShimeLogCategory.DATABASE,
+                    "Slow $operation on database '$name' took ${elapsed / 1_000_000} ms."
+                )
             }
         }
     }

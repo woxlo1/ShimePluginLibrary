@@ -21,6 +21,7 @@ class ShimeDatabaseSettings(
     val connectionTimeoutMillis: Long = 5_000,
     val queryTimeoutSeconds: Int = 30,
     val maxLifetimeMillis: Long = 1_800_000,
+    val slowQueryThresholdMillis: Long = 500,
     val useSsl: Boolean = false,
     val extraProperties: Map<String, String> = emptyMap()
 ) {
@@ -36,6 +37,7 @@ class ShimeDatabaseSettings(
         ShimeValidation.requireInRange(poolSize, "database.pool-size", 1, 64)
         ShimeValidation.requirePositive(connectionTimeoutMillis, "database.connection-timeout", allowZero = false)
         ShimeValidation.requirePositive(queryTimeoutSeconds, "database.query-timeout", allowZero = false)
+        ShimeValidation.requirePositive(slowQueryThresholdMillis, "database.slow-query-threshold", allowZero = true)
     }
 
     val jdbcUrl: String

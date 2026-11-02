@@ -26,6 +26,8 @@ interface ShimeDatabase : AutoCloseable {
 
     fun batch(sql: String, batches: List<List<Any?>>): IntArray
 
+    fun batchAsync(sql: String, batches: List<List<Any?>>): CompletableFuture<IntArray>
+
     fun <T> transaction(block: (Connection) -> T): T
 
     fun <T> transactionAsync(block: (Connection) -> T): CompletableFuture<T>
@@ -35,6 +37,9 @@ interface ShimeDatabase : AutoCloseable {
     fun updateAsync(sql: String, vararg params: Any?): CompletableFuture<Int>
 
     fun healthCheck(): Boolean
+
+    /** クエリ実行時間や失敗件数を含む診断スナップショットを返す。 */
+    fun stats(): ShimeDatabaseStats
 
     override fun close()
 }
