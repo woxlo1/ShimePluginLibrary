@@ -64,7 +64,8 @@ configure(subprojects.findAll { it.name in ['ShimePluginLibrary', 'ShimePluginCo
         publications {
             mavenJava(MavenPublication) {
                 from components.java
-                artifactId = project.name
+                // GitHub Packages は大文字を含む artifactId を拒否するため、公開時のみ小文字にする
+                artifactId = project.name.toLowerCase(Locale.ROOT)
 
                 pom {
                     name = project.name

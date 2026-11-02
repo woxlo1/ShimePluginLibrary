@@ -68,11 +68,13 @@ repositories {
 }
 
 dependencies {
-    implementation 'shimeserver:ShimePluginLibrary:1.2.3'
-    implementation 'shimeserver:ShimePluginCommand:1.2.3'
-    implementation 'shimeserver:ShimePluginNMS:1.2.3'
+    implementation 'shimeserver:shimepluginlibrary:1.2.3'
+    implementation 'shimeserver:shimeplugincommand:1.2.3'
+    implementation 'shimeserver:shimepluginnms:1.2.3'
 }
 ```
+
+GitHub Packages は artifactId に大文字を許可しないため、公開される座標は小文字になります。
 
 GitHub Packages から取得するには `read:packages` 権限を持つトークンが必要です。
 ローカルでバージョンを指定してビルドする場合は `--project-prop releaseVersion=1.2.3` を付けます。
