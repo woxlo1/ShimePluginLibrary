@@ -32,7 +32,19 @@ cd examples\sample-plugin
 - `ShimeSamplePlugin`: 起動時に `ShimeLibrary.getOrNull()` でライブラリを取得します。
 - `shimeCommand("shimesample")`: コマンド DSL で `/shimesample` を構築します。
 - `ShimeCommandManager.register(root)`: `plugin.yml` に宣言したコマンドへバインドします。
+- `ShimeSampleAnnotatedCommands`: `@ShimeCommandDefinition` と `@ShimeCommandHandler` による
+  アノテーション方式のコマンド定義です。
+- `ShimeCommandManager.registerAnnotated(..., dynamic = true)`: 動的に `/shimesampleadmin` を登録します。
 - `onDisable`: 登録したコマンドを解除します。
+
+アノテーション方式のコマンドは次のように実行できます。
+
+```text
+/shimesampleadmin
+/shimesampleadmin echo <message>
+```
+
+`/shimesampleadmin` には `shimesample.admin` 権限が必要です。
 
 このサンプルはコマンド API のみを扱います。GUI、経済、データベースなどの例は
 [API ガイド](../../docs/API.md) を参照してください。

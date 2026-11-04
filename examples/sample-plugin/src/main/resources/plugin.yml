@@ -14,3 +14,6 @@ permissions:
   shimesample.use:
     description: サンプルコマンドの使用を許可します。
     default: true
+  shimesample.admin:
+    description: アノテーション方式のサンプルコマンドの使用を許可します。
+    default: op

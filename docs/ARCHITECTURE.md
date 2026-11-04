@@ -93,18 +93,18 @@ ShimePlugin.onDisable()
 | `shimeconfig` | YAML 設定、再読み込み、バックアップ、バージョン移行。 |
 | `shimecache` | TTL 付きメモリキャッシュ、ローディングキャッシュ、統計。 |
 | `shimestorage` | YAML / JSON ストレージとコーデック。 |
-| `shimedatabase` | HikariCP 接続、SQL 実行、トランザクション、スキーマ移行。 |
-| `shimemessage` | MiniMessage ベースの多言語メッセージ。 |
-| `shimeplayer` | プレイヤープロフィールと非同期保存。 |
+| `shimedatabase` | HikariCP 接続、SQL 実行、トランザクション、スキーマ移行・検証、整合性チェック、キャッシュ付きリポジトリ。 |
+| `shimemessage` | MiniMessage ベースの多言語メッセージ、テンプレート、検証、コンポーネントキャッシュ。 |
+| `shimeplayer` | プレイヤープロフィール、ログイン履歴、セッションリソース、プロフィール移行。 |
 | `shimeitem` | アイテムビルダー、カスタムアイテム、識別、シリアライズ。 |
-| `shimegui` | チェスト GUI、ページ GUI、確認 GUI、クリック処理。 |
+| `shimegui` | チェスト GUI、ページ GUI、確認 GUI、一覧 GUI、アクセス制御、テンプレート、定期更新。 |
 | `shimescoreboard` | サイドバースコアボード。 |
 | `shimeeconomy` | インメモリ / DB 経済、取引履歴。 |
 | `shimeworld` | ワールド、座標、テレポート、範囲検索。 |
 | `shimeentity` | エンティティのタグと所有者。 |
 | `shimeinventory` | インベントリのスナップショットとシリアライズ。 |
-| `shimeevent` | Paper リスナーの登録・解除。 |
-| `shimescheduler` / `shimetask` | 同期・非同期タスクと名前付きタスク管理。 |
+| `shimeevent` | Paper リスナーの登録・解除、条件付き購読、購読統計。 |
+| `shimescheduler` / `shimetask` | 同期・非同期タスク、依存関係・タイムアウト・結果 Future・監視。 |
 | `shimemodule` | 機能モジュールの依存関係順ライフサイクル。 |
 | `shimeintegration` | 外部プラグイン連携の任意登録。 |
 | `shimeutil` | テキスト、数値、時間、ファイル操作。 |
@@ -120,7 +120,11 @@ ShimePlugin.onDisable()
 | `ShimeCommandBuilder` / `shimeCommand` | Kotlin DSL。 |
 | `ShimeCommandDsl` | Java 向け DSL。 |
 | `ShimeArgument` / `ShimeArgumentTypes` | 引数パーサーと標準実装。 |
-| `ShimeCommandManager` | `plugin.yml` または動的登録によるコマンドのバインド、実行、補完、権限、クールダウン。 |
+| `ShimeCommandManager` | `plugin.yml` または動的登録によるコマンドのバインド、実行、補完、権限、クールダウン、統計。 |
+| `ShimeCommandAnnotations` | アノテーション方式のコマンド定義とカスタム引数型の解決。 |
+| `ShimeCommandHook` | 実行前後のフック。`beforeExecution` で中止、`afterExecution` で結果を受け取る。 |
+| `ShimeCommandAuditLog` | 上限付きのインメモリ監査ログと購読ハンドル。 |
+| `ShimeCommandExecutionStats` | パスごとの実行回数、成功・失敗、実行時間。 |
 | `ShimeCommandContext` | 1 回の実行コンテキスト。 |
 | `ShimeCommandResult` | 成功、失敗、使用方法エラー、権限不足を表す結果。 |
 
@@ -166,8 +170,11 @@ ShimePlugin.onDisable()
 
 ## テスト
 
-- `ShimePluginLibrary`: サービスレジストリ、キャッシュ、SQL、経済、検証、ライフサイクル。
-- `ShimePluginCommand`: コマンドノード、ビルダー、引数パーサー。
+- `ShimePluginLibrary`: サービスレジストリ、キャッシュ、SQL、スキーマ検証、整合性チェック、
+  キャッシュ付きリポジトリ、経済、検証、ライフサイクル、タスク依存関係・タイムアウト、
+  プレイヤーセッション、GUI テンプレート・一覧、メッセージ検証、イベント購読。
+- `ShimePluginCommand`: コマンドノード、ビルダー、引数パーサー、アノテーション定義、
+  フック、監査ログ、実行統計。
 - `ShimePluginNMS`: アダプターレジストリ、バージョン判定。
 
 Paper の `JavaPlugin` を必要とするクラスは、モックまたは初期化前の状態のみをテストします。

@@ -15,17 +15,18 @@
 7. [メッセージ](#メッセージ)
 8. [スケジューラーとタスク](#スケジューラーとタスク)
 9. [プレイヤー](#プレイヤー)
-10. [アイテム](#アイテム)
-11. [GUI](#gui)
-12. [スコアボード](#スコアボード)
-13. [経済](#経済)
-14. [ワールドとエンティティ](#ワールドとエンティティ)
-15. [インベントリ](#インベントリ)
-16. [コマンド](#コマンド)
-17. [モジュール](#モジュール)
-18. [外部連携](#外部連携)
-19. [NMS とパケット](#nms-とパケット)
-20. [ユーティリティと検証](#ユーティリティと検証)
+10. [イベント](#イベント)
+11. [アイテム](#アイテム)
+12. [GUI](#gui)
+13. [スコアボード](#スコアボード)
+14. [経済](#経済)
+15. [ワールドとエンティティ](#ワールドとエンティティ)
+16. [インベントリ](#インベントリ)
+17. [コマンド](#コマンド)
+18. [モジュール](#モジュール)
+19. [外部連携](#外部連携)
+20. [NMS とパケット](#nms-とパケット)
+21. [ユーティリティと検証](#ユーティリティと検証)
 
 ## エントリーポイント
 
@@ -258,6 +259,54 @@ schema.migrate(listOf(
 適用済みバージョンは履歴テーブルに記録され、未適用のものだけが順に実行されます。
 SQL は開発者が用意したものだけを実行し、外部入力をそのまま実行しません。
 
+#### スキーマ検証と整合性チェック
+
+```kotlin
+val schema = ShimeSchemaManager(database)
+
+val validation = schema.validate(listOf(
+    ShimeTableSpec("players", setOf("uuid", "name", "balance"))
+))
+if (!validation.isValid) {
+    logger.warning(validation.summary())
+}
+
+val integrity = schema.integrityCheck(listOf("players"))
+if (!integrity.isHealthy) {
+    integrity.failedChecks().forEach { logger.warning("${it.name}: ${it.details}") }
+}
+```
+
+- `validate` はテーブルとカラムの欠落・型の不一致を `ShimeSchemaValidationReport` として返します。
+- `integrityCheck` は NULL、重複主キー、孤立行などを検査し、`ShimeDatabaseIntegrityReport` を返します。
+- どちらも検査のみを行い、データを変更しません。
+
+#### キャッシュ付きリポジトリ
+
+```kotlin
+val repository = ShimeCachedRepository(
+    delegate = playerRepository,
+    cache = library.cacheManager.create("players"),
+    keyExtractor = { it.uuid }
+)
+
+repository.findById(uuid)   // 初回のみ委譲先へ問い合わせる
+repository.save(profile)    // 保存と同時にキャッシュを更新する
+repository.invalidate(uuid) // 個別破棄
+```
+
+`findAll` と `findPage` はメモリ圧迫を避けるため常に委譲先へ問い合わせます。
+取得した値を呼び出し側で変更した場合は、保存するか `invalidate` を呼んでください。
+
+#### 健全性レポート
+
+```kotlin
+val reports = library.databaseManager.healthReports()
+if (!library.databaseManager.isHealthy()) {
+    reports.filterNot { it.healthy }.forEach { logger.warning(it.summary()) }
+}
+```
+
 ## メッセージ
 
 ### `ShimeMessageManager`
@@ -274,6 +323,40 @@ library.messageManager.sendBossBar(player, "sample.bossbar", durationMillis = 3_
 - `configure(defaultLocale, usePrefix)` で既定ロケールとプレフィックスを設定します。
 - `reload()` で `messages/` を再読み込みします。
 - `missingKeys()` で未定義キーを確認できます。
+
+#### テンプレートと検証
+
+```kotlin
+library.messageManager.registerTemplate(
+    ShimeMessageTemplate(
+        key = "sample.welcome",
+        defaultText = "<green>Welcome, {player}!</green>",
+        requiredPlaceholders = setOf("player")
+    )
+)
+
+val report = library.messageManager.validate(
+    key = "sample.welcome",
+    required = setOf("player")
+)
+if (!report.isValid) {
+    logger.warning(report.summary())
+}
+
+library.messageManager.sendWithSound(
+    player,
+    "sample.welcome",
+    placeholders = mapOf("player" to player.name),
+    sound = "minecraft:entity.experience_orb.pickup"
+)
+```
+
+- `template(locale, key)` は登録済みテンプレート、または `{name}` / `%name%` から抽出した
+  プレースホルダーを返します。
+- `validate` は不足キー、未置換プレースホルダー、空メッセージを検出します。
+- `sendWithSound` はメッセージ送信と効果音再生をまとめて行います。
+- 描画済みコンポーネントはロケール・キー・プレースホルダーの組み合わせでキャッシュされます。
+  `reload()` と `clearCache()` で破棄できます。
 
 ## スケジューラーとタスク
 
@@ -305,6 +388,39 @@ library.taskManager.cancelGroup("ui")
 val stats = library.taskManager.statistics()
 ```
 
+#### 依存関係・タイムアウト・結果 Future
+
+```kotlin
+val first = library.taskManager.submitAsyncFuture("load", group = "startup") {
+    loadFromDisk()
+}
+
+val second = library.taskManager.submitAsyncFuture(
+    name = "publish",
+    group = "startup",
+    dependsOn = listOf("load"),
+    timeoutTicks = 200L
+) {
+    publishLoadedData()
+}
+
+second.thenAccept { result ->
+    when (result.state) {
+        ShimeTaskState.COMPLETED -> logger.info("Published: ${result.value}")
+        ShimeTaskState.TIMED_OUT -> logger.warning("Timed out.", result.error)
+        ShimeTaskState.SKIPPED -> logger.warning("Skipped.", result.error)
+        else -> Unit
+    }
+}
+```
+
+- `dependsOn` のタスクは先に登録されている必要があります。依存先が失敗・キャンセル・
+  タイムアウトした場合、後続は `SKIPPED` になります。
+- `timeoutTicks` を超えると `TIMED_OUT` と `ShimeTaskTimeoutException` が返ります。
+- `ShimeTaskResult` は `state`、`value`、`error`、開始・終了時刻、実行時間を持ちます。
+- `snapshot(name)` / `snapshots()` で実行中タスクの状態、`statistics()` で累計を確認できます。
+- 非同期タスクから Bukkit API を呼ぶ場合は `callSync { ... }` でメインスレッドへ戻してください。
+
 ## プレイヤー
 
 ### `ShimePlayerManager`
@@ -322,7 +438,66 @@ library.playerManager.saveAsync(player.uniqueId)
 - `playTimeMillis(uuid)` は累積プレイ時間を返します。
 
 `ShimePlayerProfile` は UUID、名前、初回参加、最終参加、最終退出、プレイ時間、ロケール、
-スレッドセーフなメタデータを持ちます。
+スレッドセーフなメタデータ、セッション数、上限付きログイン履歴を持ちます。
+
+#### セッションとログイン履歴
+
+```kotlin
+val session = library.playerManager.session(player.uniqueId)
+session?.register(AutoCloseable { cleanup(player.uniqueId) })
+session?.put("temporary-tool", tool)
+
+val history = library.playerManager.loginHistory(player.uniqueId, limit = 10)
+val stats = library.playerManager.statistics(player.uniqueId)
+logger.info("Sessions: ${stats?.sessionCount}, average: ${stats?.averageSessionMillis} ms")
+```
+
+- セッションは参加時に開始され、退出時に登録済みリソースを逆順で閉じます。
+- リソースのクローズで例外が発生しても残りは閉じられ、例外は `suppressed` に集約されます。
+- `ShimeLoginRecord` は参加・退出時刻と継続時間を表します。履歴は上限を超えると古い順に破棄されます。
+- `ShimePlayerStatistics` はセッション数、合計プレイ時間、平均セッション時間を返します。
+
+#### プロフィールの移行
+
+```kotlin
+val exported = library.playerManager.exportProfile(uuid).join()
+library.playerManager.importProfile(exported).join()
+
+library.playerManager.exportProfileToFile(uuid, file).join()
+val restored = library.playerManager.importProfileFromFile(file).join()
+```
+
+`ShimePlayerProfileCodec` はプロフィールを Map へ変換し、必須項目と型を検証して復元します。
+不正なデータは `ShimeValidationException` または `IllegalArgumentException` として拒否されます。
+
+## イベント
+
+### `ShimeEventManager`
+
+`registerListener` / `unregisterListener` に加え、条件付きの `subscribe` を提供します。
+
+```kotlin
+val subscription = library.eventManager.subscribe(
+    PlayerAdvancementDoneEvent::class.java,
+    priority = EventPriority.MONITOR,
+    ignoreCancelled = true,
+    requirePrimaryThread = true,
+    filter = { event -> event.advancement.key.key.startsWith("sample:") }
+) { event ->
+    logger.info("${event.player.name} completed ${event.advancement.key}")
+}
+
+logger.info("Invocations: ${subscription.invocationCount}")
+logger.info("Filtered: ${subscription.filteredCount}")
+
+subscription.unregister()
+```
+
+- `filter` が `false` を返した場合、ハンドラーは呼ばれず `filteredCount` が増えます。
+- `requirePrimaryThread` が `true` の場合、非同期イベントは無視されます。
+- ハンドラーの例外はログに記録され、他のリスナーへは伝播しません。`failureCount` に集計されます。
+- `subscriptions()` と `statistics()` で購読ごとの実行回数・失敗数・平均時間を確認できます。
+- 購読は `unregister()` または `ShimeLibrary.shutdown()` で解除されます。
 
 ## アイテム
 
@@ -407,6 +582,80 @@ library.guiManager.open(player, SampleGUI(plugin))
 - `ShimeGUIManager.refresh(player)` で再描画、`updateSlot` で 1 スロット更新。
 - `ShimePagedGUI` は前/次ページのナビゲーションを提供します。
 - `ShimeConfirmGUI` ははい/いいえの確認ダイアログを提供します。
+
+#### アクセス制御
+
+```kotlin
+val gui = SampleGUI(plugin)
+gui.setOwner(player)
+gui.grantAccess(friend)
+gui.revokeAccess(other)
+
+library.guiManager.open(player, gui) // アクセス権がない場合は開かない
+```
+
+`hasAccess(player)` は所有者、明示的な許可、許可リストを確認します。
+`ShimeGUIManager.open` は非同期スレッドから呼ばれた場合、自動でメインスレッドへ委譲します。
+
+#### テンプレート
+
+```kotlin
+val template = shimeGuiTemplate(id = "shop", title = "<gold>Shop</gold>", size = 27) {
+    render { player, inventory, _ ->
+        inventory.setItem(13, ShimeItemBuilder(plugin, Material.EMERALD).name("Buy").build())
+    }
+    onClick { _, slot, _, _, _ ->
+        if (slot == 13) ShimeGUIAction.CLOSE else ShimeGUIAction.NONE
+    }
+}
+
+val gui = template.instantiate()
+library.guiManager.open(player, gui)
+```
+
+`ShimeGUITemplate` は画面定義を再利用可能にします。`instantiate()` のたびに独立した
+`ShimeGUI` を生成します。
+
+#### 一覧 GUI
+
+`ShimeListGUI` は `ShimeGUIEntry` の一覧を検索・グループ絞り込み・並べ替え・ページ送り付きで表示します。
+
+```kotlin
+class PlayerListGUI(plugin: JavaPlugin) : ShimeListGUI("players", ShimeText.component("Players"), 54) {
+    override fun entries(player: Player): List<ShimeGUIEntry> =
+        Bukkit.getOnlinePlayers().map { target ->
+            ShimeGUIEntry(
+                key = target.uniqueId.toString(),
+                item = ShimeItemBuilder(plugin, Material.PLAYER_HEAD).name(target.name).build(),
+                searchText = target.name,
+                sortKey = target.name.lowercase(),
+                group = target.world.name
+            )
+        }
+
+    override fun onSelect(player: Player, entry: ShimeGUIEntry, clickType: ClickType) {
+        player.sendMessage("Selected ${entry.key}")
+    }
+}
+```
+
+状態はプレイヤーごとに保持され、`handleClose` で破棄されます。
+
+#### 定期更新と非同期読み込み
+
+```kotlin
+library.guiManager.scheduleRefresh(player, intervalTicks = 20L)
+library.guiManager.cancelScheduledRefresh(player)
+
+library.guiManager.updateAfter(player, loader = { loadRowsAsync().join() }) { rows ->
+    // メインスレッドで GUI に反映する
+}
+```
+
+`refreshAfter` / `updateAfter` は読み込みを非同期で行い、結果をメインスレッドで反映します。
+読み込みに失敗した場合はログに記録され、GUI は変更されません。
+
+`history(player)` はプレイヤーが開いた GUI ID の履歴を返し、`clearHistory(player)` で破棄できます。
 
 ## スコアボード
 
@@ -552,6 +801,68 @@ commands.register(root, dynamic = true)
 `ShimeArgumentTypes` は `string`、`integer`、`long`、`decimal`、`boolean`、`uuid`、
 `choice`、`enumeration`、`player`、`offlinePlayer`、`world`、`custom` を提供します。
 すべてのパーサーは不正入力を `ShimeCommandArgumentException` として報告します。
+
+### アノテーション定義
+
+DSL を使わず、クラスとメソッドのアノテーションからコマンドツリーを構築できます。
+
+```kotlin
+@ShimeCommandDefinition(
+    name = "sample",
+    aliases = ["smp"],
+    permission = "sample.use",
+    description = "Sample command."
+)
+class SampleCommands {
+    @ShimeCommandHandler
+    fun root(context: ShimeCommandContext): ShimeCommandResult {
+        context.sender.sendMessage("Hello!")
+        return ShimeCommandResult.SilentSuccess
+    }
+
+    @ShimeCommandHandler(path = ["give"], permission = "sample.give")
+    fun give(
+        context: ShimeCommandContext,
+        @ShimeCommandArg(name = "amount", type = ShimeCommandArgumentType.INTEGER, min = "1", max = "64")
+        amount: Int
+    ): ShimeCommandResult {
+        return ShimeCommandResult.Success("Gave $amount item(s).")
+    }
+}
+
+val registration = commands.registerAnnotated(SampleCommands())
+```
+
+- ハンドラーには `ShimeCommandContext`、`CommandSender`、`Map<String, Any?>` を注入できます。
+- 戻り値は `ShimeCommandResult`、`String`、`Boolean`、`Unit`、`null` を扱えます。
+- `AUTO` はメソッド引数の型から解決します。`CHOICE`、`ENUM`、`CUSTOM` も利用できます。
+- `ShimeCommandAnnotations.registerArgumentType(name, argument)` でカスタム型を登録できます。
+- `ShimeCommandRegistration.unregister()` で登録を解除します。
+
+### フック・監査ログ・統計
+
+```kotlin
+commands.addHook(object : ShimeCommandHook {
+    override fun beforeExecution(context: ShimeCommandContext): Boolean {
+        return context.sender.hasPermission("sample.extra")
+    }
+
+    override fun afterExecution(context: ShimeCommandContext, result: ShimeCommandResult) {
+        logger.info("${context.sender.name}: $result")
+    }
+})
+
+val recent = commands.auditLog.recent(limit = 20)
+val stats = commands.statistics("sample give")
+commands.resetStatistics()
+```
+
+- フックは登録順に `beforeExecution` が呼ばれ、`false` を返した場合は実行されません。
+- `afterExecution` は実行された場合のみ、登録と逆順に呼ばれます。フックの例外はログに記録されます。
+- `auditLog` は上限付きのインメモリ監査ログです。`addListener` で永続化できます。
+- `statistics(path)` は実行回数、成功・失敗数、平均・最小・最大実行時間を返します。
+  拒否された呼び出し（権限不足、クールダウン、引数エラー）は含みません。
+- 引数エラーには引数名・位置・入力値が含まれ、使用方法の表示に利用されます。
 
 ## モジュール
 
