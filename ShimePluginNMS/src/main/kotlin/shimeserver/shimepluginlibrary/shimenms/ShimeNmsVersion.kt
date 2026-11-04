@@ -21,11 +21,12 @@ class ShimeNmsVersion(
     /**
      * このサーバーバージョンが組み込みアダプターによって明示的にサポートされているかどうかを返す。
      *
-     * 初期状態では [ShimeMinecraftVersion.PAPER_1_20_6] のみがサポートされる。外部アダプターが
-     * サポートを宣言している場合は、より新しいサーバーでも動作する可能性がある。
+     * 同梱アダプターは [ShimeMinecraftVersion.BUILT_IN_SUPPORTED_VERSIONS] に含まれるバージョン
+     * （現在は 1.20.6 と 1.21.8）を対象とする。外部アダプターがサポートを宣言している場合は、
+     * それ以外のサーバーでも動作する可能性がある。
      */
     val isSupported: Boolean
-        get() = minecraftVersion == ShimeMinecraftVersion.PAPER_1_20_6
+        get() = minecraftVersion in ShimeMinecraftVersion.BUILT_IN_SUPPORTED_VERSIONS
 
     /** 検出された場合、完全修飾された NMS パッケージを返す。 */
     val nmsPackageName: String?

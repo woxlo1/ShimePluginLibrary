@@ -133,6 +133,9 @@ ShimePlugin.onDisable()
 | クラス | 役割 |
 | --- | --- |
 | `ShimeVersionDetector` | サーバーの Minecraft バージョンを検出。 |
+| `ShimeBuiltInPaperAdapter` | 同梱 Paper アダプターの共通ライフサイクル。 |
+| `ShimePaper1206Adapter` | Paper 1.20.6 向けのバージョン検出アダプター。 |
+| `ShimePaper1218Adapter` | Paper 1.21.8 向けのバージョン検出アダプター。 |
 | `ShimeNmsAdapter` | バージョン別実装の SPI。 |
 | `ShimeNmsAdapterRegistry` | アダプターの登録、選択、状態管理。 |
 | `ShimeNmsManager` | アダプターの初期化、停止、レポート。 |
@@ -156,9 +159,9 @@ ShimePlugin.onDisable()
 
 ### NMS とパケット
 
-コアは NMS の内部クラスを参照しません。`ShimePluginNMS` も、同梱アダプターはバージョン検出のみを
-実装し、未検証のリフレクションやパケット転送を提供しません。パケット操作は `ShimePacketTransport`
-を実装した検証済みアダプターがある場合にのみ利用できます。
+コアは NMS の内部クラスを参照しません。`ShimePluginNMS` も、同梱アダプターは 1.20.6 と 1.21.8 の
+バージョン検出のみを実装し、未検証のリフレクションやパケット転送を提供しません。パケット操作は
+`ShimePacketTransport` を実装した検証済みアダプターがある場合にのみ利用できます。
 
 ## スレッド安全性
 
@@ -175,7 +178,7 @@ ShimePlugin.onDisable()
   プレイヤーセッション、GUI テンプレート・一覧、メッセージ検証、イベント購読。
 - `ShimePluginCommand`: コマンドノード、ビルダー、引数パーサー、アノテーション定義、
   フック、監査ログ、実行統計。
-- `ShimePluginNMS`: アダプターレジストリ、バージョン判定。
+- `ShimePluginNMS`: アダプターレジストリ、バージョン判定（1.20.6 / 1.21.8）。
 
 Paper の `JavaPlugin` を必要とするクラスは、モックまたは初期化前の状態のみをテストします。
-実際のサーバーでの動作確認は、ビルドした JAR を Paper 1.20.6 に導入して行ってください。
+実際のサーバーでの動作確認は、ビルドした JAR を Paper 1.20.6 または Paper 1.21.8 に導入して行ってください。

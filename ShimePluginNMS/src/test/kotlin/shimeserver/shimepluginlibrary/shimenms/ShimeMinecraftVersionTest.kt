@@ -41,6 +41,24 @@ class ShimeMinecraftVersionTest {
             ShimeMinecraftVersion(1, 20, 0),
             ShimeMinecraftVersion.parseOrNull("1.20")
         )
+        assertEquals(
+            ShimeMinecraftVersion(1, 21, 8),
+            ShimeMinecraftVersion.parseOrNull("1.21.8-R0.1-SNAPSHOT")
+        )
+        assertEquals(
+            ShimeMinecraftVersion(1, 21, 8),
+            ShimeMinecraftVersion.parseOrNull("git-Paper-60 (MC: 1.21.8)")
+        )
+    }
+
+    @Test
+    fun `exposes the built-in supported versions`() {
+        assertTrue(ShimeMinecraftVersion.PAPER_1_20_6 in ShimeMinecraftVersion.BUILT_IN_SUPPORTED_VERSIONS)
+        assertTrue(ShimeMinecraftVersion.PAPER_1_21_8 in ShimeMinecraftVersion.BUILT_IN_SUPPORTED_VERSIONS)
+        assertEquals(
+            setOf(ShimeMinecraftVersion.PAPER_1_20_6, ShimeMinecraftVersion.PAPER_1_21_8),
+            ShimeMinecraftVersion.BUILT_IN_SUPPORTED_VERSIONS
+        )
     }
 
     @Test

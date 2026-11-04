@@ -932,16 +932,29 @@ val report = nms.report()
 
 ```kotlin
 class CustomAdapter : ShimeNmsAdapter {
-    override val adapterId = "custom-1.20.6"
-    override val supportedMinecraftVersions = setOf(ShimeMinecraftVersion.PAPER_1_20_6)
-    override val supportedFeatures = setOf(ShimeNmsFeature.VERSION_DETECTION)
+    override val adapterId = "custom-1.21.8"
+    override val supportedMinecraftVersions = setOf(ShimeMinecraftVersion.PAPER_1_21_8)
 
-    override fun initialize(context: ShimeNmsAdapterContext) { }
-    override fun shutdown() { }
+    private var currentStatus = ShimeNmsAdapterStatus.CREATED
+
+    override fun supports(feature: ShimeNmsFeature): Boolean {
+        return currentStatus == ShimeNmsAdapterStatus.COMPATIBLE && feature == ShimeNmsFeature.VERSION_DETECTION
+    }
+
+    override fun initialize(context: ShimeNmsAdapterContext) {
+        currentStatus = ShimeNmsAdapterStatus.COMPATIBLE
+    }
+
+    override fun shutdown() {
+        currentStatus = ShimeNmsAdapterStatus.CLOSED
+    }
+
+    override fun status(): ShimeNmsAdapterStatus = currentStatus
 }
 ```
 
-同梱の `ShimePaper1206Adapter` は `VERSION_DETECTION` のみをサポートします。
+同梱の `ShimePaper1206Adapter`（Paper 1.20.6）と `ShimePaper1218Adapter`（Paper 1.21.8）は
+`VERSION_DETECTION` のみをサポートします。1.21.8 の内部クラスやパケット形式は検証なしに使用しません。
 パケット転送を実装する場合は `ShimePacketTransport` を実装し、アダプターから公開してください。
 検証済みのトランスポートがない状態でパケット操作を行うと
 `ShimeNmsUnsupportedException` がスローされます。
@@ -997,7 +1010,8 @@ MiniMessage とレガシー形式の両方を扱えます。
 
 ## 制約
 
-- Paper 1.20.6 を初期対象としています。他のバージョンでは NMS アダプターの追加が必要です。
-- 同梱の NMS アダプターはバージョン検出のみです。
+- Paper 1.20.6 をビルドと実行の基準とし、Paper 1.21.8 では NMS のバージョン検出を利用できます。
+  それ以外のバージョンでは、NMS アダプターの追加が必要です。
+- 同梱の NMS アダプターはバージョン検出のみです。1.21.8 の内部クラスやパケット形式は同梱しません。
 - 外部プラグイン連携、パケット転送、Boss API、独自権限、独自プレースホルダーは同梱しません。
-- 実際のサーバーでの動作は、ビルドした JAR を Paper 1.20.6 に導入して確認してください。
+- 実際のサーバーでの動作は、ビルドした JAR を Paper 1.20.6 または Paper 1.21.8 に導入して確認してください。

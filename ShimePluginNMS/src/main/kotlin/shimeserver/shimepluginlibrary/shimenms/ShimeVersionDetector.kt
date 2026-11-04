@@ -11,7 +11,7 @@ import org.bukkit.Server
  */
 object ShimeVersionDetector {
     private val SERVER_VERSION_PATTERN = Regex("""\(MC:\s*([0-9][0-9.]*)\)""")
-    private val NMS_PACKAGE_PATTERN = Regex("""\.(v\d+_\d+_R\d+)\.?""")
+    private val NMS_PACKAGE_PATTERN = Regex("""\.(v\d+_\d+_R\d+)(?:\.|$)""")
 
     /**
      * 稼働中の [server] からバージョンを検出する。
@@ -30,9 +30,15 @@ object ShimeVersionDetector {
     /**
      * 生の文字列からバージョンを検出する。
      *
-     * @param bukkitVersion [Server.getBukkitVersion] が返す値（例: `1.20.6-R0.1-SNAPSHOT`）。
-     * @param serverVersion [Server.getVersion] が返す値（例: `git-Paper-151 (MC: 1.20.6)`）。
-     * @param serverClassName サーバー実装の実行時クラス名。
+     * バージョンはまず Bukkit のバージョン文字列から解析し、失敗した場合はサーバーの
+     * バージョン文字列に含まれる `(MC: x.y.z)` を使用する。どちらも解析できない場合は
+     * バージョンを推測せず `null` として報告する。
+     *
+     * @param bukkitVersion [Server.getBukkitVersion] が返す値（例: `1.21.8-R0.1-SNAPSHOT`）。
+     * @param serverVersion [Server.getVersion] が返す値（例: `git-Paper-60 (MC: 1.21.8)`）。
+     * @param serverClassName サーバー実装の実行時クラス名。バージョン付きの CraftBukkit
+     *   パッケージ（例: `org.bukkit.craftbukkit.v1_21_R5.CraftServer`）が含まれる場合は、
+     *   そのパッケージ名も報告する。
      */
     @JvmStatic
     fun detect(bukkitVersion: String, serverVersion: String, serverClassName: String): ShimeNmsVersion {
