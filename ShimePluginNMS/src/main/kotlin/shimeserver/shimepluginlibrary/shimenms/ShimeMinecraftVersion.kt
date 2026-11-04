@@ -45,6 +45,19 @@ data class ShimeMinecraftVersion(
         @JvmField
         val PAPER_1_20_6: ShimeMinecraftVersion = ShimeMinecraftVersion(1, 20, 6)
 
+        /** 1.21.8 系のサーバーバージョン。 */
+        @JvmField
+        val PAPER_1_21_8: ShimeMinecraftVersion = ShimeMinecraftVersion(1, 21, 8)
+
+        /**
+         * 同梱アダプターが明示的にサポートするサーバーバージョン。
+         *
+         * この集合に含まれないバージョンでも、外部アダプターが対応を宣言していれば動作する。
+         * 同梱アダプターはバージョン検出のみを提供し、パケット転送などの内部機能は含まない。
+         */
+        @JvmField
+        val BUILT_IN_SUPPORTED_VERSIONS: Set<ShimeMinecraftVersion> = setOf(PAPER_1_20_6, PAPER_1_21_8)
+
         private val VERSION_PATTERN = Regex("""(\d+)\.(\d+)(?:\.(\d+))?""")
 
         /**

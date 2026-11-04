@@ -47,12 +47,12 @@ class ShimeNmsManager(private val logger: ShimeLogger) : ShimeAbstractService(SE
         }
         if (!version.isSupported) {
             addWarning(
-                "Minecraft ${version.minecraftVersion ?: "unknown"} is not the initially supported version " +
-                    "${ShimeMinecraftVersion.PAPER_1_20_6}; only adapters that declare it can be used."
+                "Minecraft ${version.minecraftVersion ?: "unknown"} is not supported by the built-in adapters " +
+                    "(${builtInSupportedVersionText()}); only adapters that declare it can be used."
             )
         }
 
-        registerBuiltInAdapter()
+        registerBuiltInAdapters()
         loadExternalAdapters(context)
 
         val adapterContext = ShimeNmsAdapterContext(
@@ -187,12 +187,27 @@ class ShimeNmsManager(private val logger: ShimeLogger) : ShimeAbstractService(SE
         )
     }
 
-    private fun registerBuiltInAdapter() {
+    private fun registerBuiltInAdapters() {
+        registerBuiltInAdapter(ShimePaper1206Adapter())
+        registerBuiltInAdapter(ShimePaper1218Adapter())
+    }
+
+    private fun registerBuiltInAdapter(adapter: ShimeNmsAdapter) {
         try {
-            registry.register(ShimePaper1206Adapter())
+            registry.register(adapter)
         } catch (exception: IllegalArgumentException) {
-            logger.warn(ShimeLogCategory.NMS, "The built-in NMS adapter could not be registered.", exception)
+            logger.warn(
+                ShimeLogCategory.NMS,
+                "The built-in NMS adapter '${adapter.adapterId}' could not be registered.",
+                exception
+            )
         }
+    }
+
+    private fun builtInSupportedVersionText(): String {
+        return ShimeMinecraftVersion.BUILT_IN_SUPPORTED_VERSIONS
+            .sorted()
+            .joinToString { it.toString() }
     }
 
     private fun loadExternalAdapters(context: ShimeContext) {
