@@ -69,6 +69,41 @@ class ShimeDatabaseManager(
 
     fun health(): Map<String, Boolean> = databases.mapValues { (_, database) -> database.healthCheck() }
 
+    /**
+     * 登録済みデータベースごとのヘルスレポートを名前順に返す。
+     *
+     * 接続確認に失敗しても例外は投げず、[ShimeDatabaseHealthReport.healthy] が false になります。
+     * レポートには累計統計が含まれますが、パスワードや接続文字列は含まれません。
+     */
+    fun healthReports(): List<ShimeDatabaseHealthReport> {
+        return names().map { databaseName ->
+            val database = databases.getValue(databaseName)
+            val healthy = try {
+                database.healthCheck()
+            } catch (exception: Exception) {
+                logger.warn(
+                    ShimeLogCategory.DATABASE,
+                    "Health check failed for database '$databaseName'.",
+                    exception
+                )
+                false
+            }
+            ShimeDatabaseHealthReport(
+                name = databaseName,
+                type = database.type,
+                ready = database.isReady,
+                healthy = healthy,
+                stats = database.stats()
+            )
+        }
+    }
+
+    /** [name] のヘルスレポート。未登録の場合は null。 */
+    fun healthReport(name: String): ShimeDatabaseHealthReport? = healthReports().firstOrNull { it.name == name }
+
+    /** 登録済みデータベースがすべて正常な場合に true。データベースが未登録の場合は true。 */
+    fun isHealthy(): Boolean = healthReports().all { it.healthy }
+
     fun names(): List<String> = databases.keys.sorted()
 
     companion object {
