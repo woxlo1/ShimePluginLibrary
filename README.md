@@ -138,13 +138,13 @@ ShimeConfig config = library.getConfigManager().create("sample", "sample.yml", t
 | `configManager` | YAML 設定の作成、再読み込み、バージョン移行。 |
 | `cacheManager` | 名前付きメモリキャッシュとローディングキャッシュ。 |
 | `storageManager` | YAML / JSON ストレージ。 |
-| `databaseManager` | HikariCP による SQLite / MySQL / MariaDB 接続。 |
-| `eventManager` | Paper リスナーの登録・解除とライフサイクル管理。 |
-| `taskManager` | 名前とグループで管理できるタスク。 |
-| `messageManager` | MiniMessage ベースの多言語メッセージ。 |
+| `databaseManager` | HikariCP による接続、スキーマ検証、整合性チェック、キャッシュ付きリポジトリ。 |
+| `eventManager` | Paper リスナー、条件付き購読、購読ごとの実行統計。 |
+| `taskManager` | 名前・グループ・依存関係・タイムアウト・結果 Future を持つタスク。 |
+| `messageManager` | MiniMessage ベースの多言語メッセージ、テンプレート、検証、コンポーネントキャッシュ。 |
 | `itemManager` | カスタムアイテム定義、識別、クリック処理、クールダウン。 |
-| `guiManager` | チェスト GUI、ページ GUI、確認 GUI。 |
-| `playerManager` | プレイヤープロフィールの読み込み・保存。 |
+| `guiManager` | チェスト GUI、ページ GUI、確認 GUI、一覧 GUI、アクセス制御、定期更新。 |
+| `playerManager` | プロフィール、ログイン履歴、セッションリソース、プロフィール移行。 |
 | `scoreboardManager` | サイドバースコアボード。 |
 | `worldService` | ワールド・座標・テレポート・範囲検索。 |
 | `entityService` | エンティティのタグ付けと所有者管理。 |
@@ -154,6 +154,75 @@ ShimeConfig config = library.getConfigManager().create("sample", "sample.yml", t
 | `inventoryService` | インベントリのスナップショット、シリアライズ、復元。 |
 
 詳細は [docs/API.md](docs/API.md) を参照してください。
+
+## 拡張 API
+
+各マネージャーは、実運用で必要になる次の機能を提供します。いずれもライフサイクルと
+スレッド規則に統合されており、停止時に自動で解放されます。
+
+### コマンド
+
+- アノテーション定義（`@ShimeCommandDefinition` / `@ShimeCommandHandler` / `@ShimeCommandArg`）と DSL の併用。
+- `ShimeCommandManager.addHook` による実行前後のフック。
+- `auditLog` による上限付き監査ログとリスナー登録。
+- `statistics()` によるパスごとの実行回数・成功率・実行時間。
+
+```kotlin
+@ShimeCommandDefinition(name = "sample", permission = "sample.use")
+class SampleCommands {
+    @ShimeCommandHandler
+    fun root(context: ShimeCommandContext): ShimeCommandResult {
+        context.sender.sendMessage("Hello!")
+        return ShimeCommandResult.SilentSuccess
+    }
+}
+
+commands.registerAnnotated(SampleCommands())
+commands.auditLog.recent(limit = 20)
+```
+
+### GUI
+
+- `ShimeGUI.setOwner` / `grantAccess` / `hasAccess` による所有者とアクセス制御。
+- `ShimeGUITemplate` と `shimeGuiTemplate` DSL による再利用可能な画面定義。
+- `ShimeListGUI` の検索・グループ絞り込み・並べ替え・ページ送り。
+- `scheduleRefresh` / `refreshAfter` / `updateAfter` による定期更新と非同期読み込み。
+- `history(player)` によるプレイヤーごとの表示履歴。
+
+### タスク
+
+- `submitSyncFuture` / `submitAsyncFuture` が返す `CompletableFuture<ShimeTaskResult<T>>`。
+- `dependsOn` による依存関係。依存先が失敗した場合は `SKIPPED` になります。
+- `timeoutTicks` によるタイムアウト。結果は `TIMED_OUT` と `ShimeTaskTimeoutException`。
+- `snapshot` / `snapshots` / `statistics` による監視。
+- `callSync` による非同期処理からメインスレッドへの復帰。
+
+### プレイヤー
+
+- `session(uuid)` が返す `ShimePlayerSession` で、退出時に閉じるリソースを登録できます。
+- `loginHistory(uuid)` と `statistics(uuid)` によるセッション履歴と集計。
+- `exportProfile` / `importProfile` とファイル版によるプロフィール移行。
+
+### メッセージ・イベント
+
+- `registerTemplate` / `template` / `validate` によるテンプレートとプレースホルダー検証。
+- `sendWithSound` によるメッセージと効果音の同時送信。
+- `ShimeEventManager.subscribe` の `filter` と購読ごとの統計（`subscriptions()` / `statistics()`）。
+
+### データベース
+
+- `ShimeSchemaManager.validate` によるテーブル・カラム検証。
+- `integrityCheck` による NULL・重複主キーなどの整合性チェック。
+- `ShimeCachedRepository` による読み取りキャッシュ。`save` / `deleteById` はキャッシュも更新します。
+- `healthReports()` による接続ごとの健全性レポート。
+
+```kotlin
+val repository = ShimeCachedRepository(delegate, cache, keyExtractor = { it.id })
+val schema = ShimeSchemaManager(database)
+val report = schema.validate(listOf(ShimeTableSpec("players", setOf("uuid", "name"))))
+val integrity = schema.integrityCheck(listOf("players"))
+```
+
 
 ## コマンド
 

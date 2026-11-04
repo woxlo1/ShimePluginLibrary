@@ -25,6 +25,7 @@ class ShimeCommandNode internal constructor(
     internal var executor: ShimeCommandExecutor? = null
     internal var tabCompleter: ShimeCommandTabCompleter? = null
     internal val arguments = ArrayList<ShimeCommandArgumentSpec>()
+    internal val commandHooks = ArrayList<ShimeCommandHook>()
     private val childNodes = LinkedHashMap<String, ShimeCommandNode>()
 
     init {
@@ -49,6 +50,10 @@ class ShimeCommandNode internal constructor(
     /** 直接の子ノードの不変ビュー。 */
     val children: List<ShimeCommandNode>
         get() = childNodes.values.toList()
+
+    /** このノードに登録された実行フックの不変ビュー。 */
+    val hooks: List<ShimeCommandHook>
+        get() = commandHooks.toList()
 
     /** [token] に名前またはエイリアスで一致する子ノードを返す。 */
     fun child(token: String): ShimeCommandNode? {
