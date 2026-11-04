@@ -14,7 +14,14 @@ object ShimePlayerProfileCodec : ShimeStorageCodec<ShimePlayerProfile> {
             "last-quit" to value.lastQuitMillis,
             "play-time" to value.playTimeMillis,
             "locale" to value.locale,
-            "metadata" to value.metadata.toMap()
+            "session-count" to value.sessionCount,
+            "metadata" to value.metadata.toMap(),
+            "login-history" to value.loginHistory.map { record ->
+                linkedMapOf(
+                    "join" to record.joinMillis,
+                    "quit" to record.quitMillis
+                )
+            }
         )
     }
 
@@ -26,6 +33,15 @@ object ShimePlayerProfileCodec : ShimeStorageCodec<ShimePlayerProfile> {
                 metadata[key] = value.toString()
             }
         }
+        val history = ArrayList<ShimeLoginRecord>()
+        (data["login-history"] as? List<*>)?.forEach { entry ->
+            val map = entry as? Map<*, *> ?: return@forEach
+            val join = (map["join"] as? Number)?.toLong() ?: return@forEach
+            val quit = (map["quit"] as? Number)?.toLong() ?: 0L
+            if (join > 0L) {
+                history += ShimeLoginRecord(join, quit)
+            }
+        }
         return ShimePlayerProfile(
             uuid = uuid,
             name = data["name"] as? String ?: uuid.toString(),
@@ -34,7 +50,9 @@ object ShimePlayerProfileCodec : ShimeStorageCodec<ShimePlayerProfile> {
             lastQuitMillis = (data["last-quit"] as? Number)?.toLong() ?: 0L,
             playTimeMillis = (data["play-time"] as? Number)?.toLong() ?: 0L,
             locale = data["locale"] as? String ?: "en_US",
-            metadata = metadata
+            metadata = metadata,
+            sessionCount = (data["session-count"] as? Number)?.toInt() ?: history.size,
+            loginHistory = java.util.concurrent.CopyOnWriteArrayList(history)
         )
     }
 }
