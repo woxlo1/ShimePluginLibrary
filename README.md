@@ -313,6 +313,20 @@ cd examples/sample-plugin
 ../../gradlew -p . build
 ```
 
+`examples/consumer-plugin/` は、公開された `ShimePluginLibrary`、`ShimePluginCommand`、
+`ShimePluginNMS` を Maven 座標で解決してビルドする利用者サンプルです。
+
+```bash
+# ローカル公開物で座標と POM を検証する場合
+./gradlew publishToMavenLocal --project-prop releaseVersion=1.1.0
+cd examples/consumer-plugin
+../../gradlew -p . build -PshimeArtifactSource=local -PshimeVersion=1.1.0
+```
+
+GitHub Packages の公開物を直接検証する場合は、`read:packages` 権限を持つトークンを設定し、
+`-PshimeArtifactSource=github` を指定します。GitHub Actions の `Verify Published Artifacts`
+ワークフローでも同じ検証を実行できます。
+
 ## 開発
 
 - Kotlin 2.0.21、Java 21、Groovy Gradle DSL。

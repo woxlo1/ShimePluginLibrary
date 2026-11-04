@@ -1,0 +1,6 @@
+name: ShimeConsumerPlugin
+version: '1.0.0'
+main: shimeserver.shimeconsumer.ShimeConsumerPlugin
+api-version: '1.20'
+authors: [shimeserver]
+description: ShimePluginLibrary の公開成果物を解決するためのサンプルです。
