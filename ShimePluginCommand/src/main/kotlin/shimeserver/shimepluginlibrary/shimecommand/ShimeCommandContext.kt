@@ -10,7 +10,8 @@ import shimeserver.shimepluginlibrary.shimescheduler.ShimeScheduler
  * コマンド1回の呼び出しに対する実行コンテキスト。
  *
  * コンテキストは不変である。[args] にはサブコマンド解決後の残りのトークンが入り、
- * [rawArgs] は送信者が入力した内容をそのまま保持する。スケジューラーを公開しているため、
+ * [rawArgs] は送信者が入力した内容をそのまま保持する。[arguments] は解析済みの位置引数であり、
+ * 実行フックやエグゼキューターから名前で参照できる。スケジューラーを公開しているため、
  * エグゼキューターはグローバル状態を捕捉することなく、負荷の高い処理をプライマリスレッドの外へ移せる。
  */
 class ShimeCommandContext(
@@ -22,7 +23,8 @@ class ShimeCommandContext(
     val rawArgs: List<String>,
     val manager: ShimeCommandManager,
     val plugin: JavaPlugin,
-    val scheduler: ShimeScheduler
+    val scheduler: ShimeScheduler,
+    val arguments: Map<String, Any?> = emptyMap()
 ) {
     val isPlayer: Boolean
         get() = sender is Player

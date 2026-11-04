@@ -81,6 +81,18 @@ class ShimeCommandBuilder internal constructor(internal val node: ShimeCommandNo
         return this
     }
 
+    /** 実行前後のフックを追加する。フックは追加順に実行される。 */
+    fun hook(hook: ShimeCommandHook): ShimeCommandBuilder {
+        node.commandHooks += hook
+        return this
+    }
+
+    /** 実行前後のフックをまとめて追加する。 */
+    fun hooks(vararg hooks: ShimeCommandHook): ShimeCommandBuilder {
+        node.commandHooks += hooks
+        return this
+    }
+
     /** エグゼキューターを設定する。 */
     fun executor(executor: ShimeCommandExecutor): ShimeCommandBuilder {
         node.executor = executor

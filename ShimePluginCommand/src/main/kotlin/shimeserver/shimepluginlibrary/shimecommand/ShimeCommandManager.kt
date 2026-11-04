@@ -14,6 +14,7 @@ import shimeserver.shimepluginlibrary.shimescheduler.ShimeScheduler
 import shimeserver.shimepluginlibrary.shimeservice.ShimeAbstractService
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * コマンドツリーを Paper に登録し、実行、権限、クールダウン、補完を振り分ける。
@@ -29,7 +30,8 @@ import java.util.concurrent.ConcurrentHashMap
 class ShimeCommandManager(
     private val plugin: JavaPlugin,
     private val logger: ShimeLogger,
-    private val scheduler: ShimeScheduler
+    private val scheduler: ShimeScheduler,
+    val auditLog: ShimeCommandAuditLog = ShimeCommandAuditLog()
 ) : ShimeAbstractService(SERVICE_NAME) {
     private data class Binding(
         val root: ShimeCommandNode,
@@ -40,9 +42,49 @@ class ShimeCommandManager(
 
     private data class UsageCounter(var windowStart: Long, var count: Int)
 
+    private class MutableExecutionStats {
+        private var executions = 0L
+        private var successes = 0L
+        private var failures = 0L
+        private var totalDurationNanos = 0L
+        private var minDurationNanos = Long.MAX_VALUE
+        private var maxDurationNanos = 0L
+        private var lastExecutedMillis = 0L
+
+        @Synchronized
+        fun record(success: Boolean, durationNanos: Long, timestampMillis: Long) {
+            executions += 1
+            if (success) {
+                successes += 1
+            } else {
+                failures += 1
+            }
+            totalDurationNanos += durationNanos
+            minDurationNanos = minOf(minDurationNanos, durationNanos)
+            maxDurationNanos = maxOf(maxDurationNanos, durationNanos)
+            lastExecutedMillis = timestampMillis
+        }
+
+        @Synchronized
+        fun snapshot(path: String): ShimeCommandExecutionStats {
+            return ShimeCommandExecutionStats(
+                path = path,
+                executions = executions,
+                successes = successes,
+                failures = failures,
+                totalDurationNanos = totalDurationNanos,
+                lastExecutedMillis = lastExecutedMillis,
+                minDurationNanos = if (executions == 0L) 0L else minDurationNanos,
+                maxDurationNanos = maxDurationNanos
+            )
+        }
+    }
+
     private val bindings = ConcurrentHashMap<String, Binding>()
     private val cooldowns = ConcurrentHashMap<String, Long>()
     private val usageCounters = ConcurrentHashMap<String, UsageCounter>()
+    private val executionStats = ConcurrentHashMap<String, MutableExecutionStats>()
+    private val globalHooks = CopyOnWriteArrayList<ShimeCommandHook>()
 
     override fun onInitialize(context: ShimeContext) {
         // コマンドはライブラリの初期化前にプラグインのブートストラップによって登録される。
@@ -52,6 +94,8 @@ class ShimeCommandManager(
         registeredNames().forEach { unregister(it) }
         cooldowns.clear()
         usageCounters.clear()
+        executionStats.clear()
+        globalHooks.clear()
     }
 
     /**
@@ -117,6 +161,7 @@ class ShimeCommandManager(
         val pathPrefix = "|${binding.root.path}"
         cooldowns.keys.removeIf { it.endsWith(pathPrefix) || it.contains("$pathPrefix ") }
         usageCounters.keys.removeIf { it.endsWith(pathPrefix) || it.contains("$pathPrefix ") }
+        executionStats.keys.removeIf { it == binding.root.path || it.startsWith("${binding.root.path} ") }
         logger.info(ShimeLogCategory.COMMAND, "Unregistered command '/$normalized'.")
         return true
     }
@@ -126,6 +171,45 @@ class ShimeCommandManager(
     fun registeredNames(): List<String> = bindings.keys.sorted()
 
     fun root(commandName: String): ShimeCommandNode? = bindings[commandName.lowercase(Locale.ROOT)]?.root
+
+    /**
+     * [target] のアノテーションからコマンドツリーを構築して登録する。
+     *
+     * @param dynamic true の場合、`plugin.yml` に存在しないコマンドも動的に登録する。
+     * @throws ShimeCommandException アノテーション定義が不正な場合、または登録できない場合。
+     */
+    @JvmOverloads
+    fun registerAnnotated(target: Any, dynamic: Boolean = false): ShimeCommandRegistration {
+        return register(ShimeCommandAnnotations.build(target), dynamic = dynamic)
+    }
+
+    /** すべてのコマンドに適用される実行フックを追加する。 */
+    fun addHook(hook: ShimeCommandHook) {
+        globalHooks += hook
+    }
+
+    /** 登録済みのグローバル実行フックを解除する。 */
+    fun removeHook(hook: ShimeCommandHook): Boolean = globalHooks.remove(hook)
+
+    /** 登録済みのグローバル実行フックの不変ビュー。 */
+    fun hooks(): List<ShimeCommandHook> = globalHooks.toList()
+
+    /** コマンドパス別の実行統計をパス順に返す。 */
+    fun statistics(): List<ShimeCommandExecutionStats> {
+        return executionStats.entries
+            .map { (path, stats) -> stats.snapshot(path) }
+            .sortedBy { it.path }
+    }
+
+    /** [path] の実行統計を返す。未実行の場合は null。 */
+    fun statistics(path: String): ShimeCommandExecutionStats? {
+        return executionStats[path]?.snapshot(path)
+    }
+
+    /** すべての実行統計をクリアする。監査ログはクリアしない。 */
+    fun resetStatistics() {
+        executionStats.clear()
+    }
 
     /** 1回の呼び出しを振り分ける。テストおよび独自のコマンドラッパー向けに公開されている。 */
     fun dispatch(root: ShimeCommandNode, sender: CommandSender, label: String, args: List<String>): Boolean {
@@ -168,7 +252,7 @@ class ShimeCommandManager(
             return true
         }
 
-        val context = ShimeCommandContext(
+        val parseContext = ShimeCommandContext(
             sender = sender,
             root = root,
             node = node,
@@ -183,37 +267,115 @@ class ShimeCommandManager(
         for ((argumentIndex, spec) in node.arguments.withIndex()) {
             if (argumentIndex < remaining.size) {
                 try {
-                    arguments[spec.name] = spec.argument.parse(remaining[argumentIndex], context)
+                    arguments[spec.name] = spec.argument.parse(remaining[argumentIndex], parseContext)
                 } catch (exception: ShimeCommandArgumentException) {
-                    sender.sendMessage("Invalid ${spec.name}: ${exception.message}")
-                    sender.sendMessage(node.usageLine(label))
+                    reportArgumentError(sender, node, label, argumentIndex, spec, remaining[argumentIndex], exception)
                     return true
                 }
             } else if (spec.optional) {
-                arguments[spec.name] = spec.defaultValue
+                try {
+                    arguments[spec.name] = spec.defaultProvider?.resolve(parseContext) ?: spec.defaultValue
+                } catch (exception: ShimeCommandArgumentException) {
+                    sender.sendMessage(
+                        "Invalid default value for argument <${spec.name}>: ${exception.message}"
+                    )
+                    sender.sendMessage(node.usageLine(label))
+                    return true
+                }
             } else {
-                sender.sendMessage("Missing required argument <${spec.name}>.")
+                sender.sendMessage("Missing required argument #${argumentIndex + 1} <${spec.name}>.")
                 sender.sendMessage(node.usageLine(label))
                 return true
             }
         }
         if (remaining.size > node.arguments.size) {
-            sender.sendMessage("Too many arguments.")
+            val unexpectedIndex = node.arguments.size
+            sender.sendMessage(
+                "Too many arguments. Unexpected '${remaining[unexpectedIndex]}' at position #${unexpectedIndex + 1}."
+            )
             sender.sendMessage(node.usageLine(label))
             return true
         }
 
+        val context = ShimeCommandContext(
+            sender = sender,
+            root = root,
+            node = node,
+            label = label,
+            args = remaining,
+            rawArgs = args,
+            manager = this,
+            plugin = plugin,
+            scheduler = scheduler,
+            arguments = arguments
+        )
         if (node.cooldownMillis > 0L) {
             cooldowns[cooldownKey] = now + node.cooldownMillis
         }
-        val result = try {
-            executor.execute(context, arguments)
-        } catch (exception: ShimeCommandArgumentException) {
-            ShimeCommandResult.Failure(exception.message ?: "Invalid command input.", exception)
-        } catch (throwable: Throwable) {
-            logger.error(ShimeLogCategory.COMMAND, "Command '/$label ${args.joinToString(" ")}' failed.", throwable)
-            ShimeCommandResult.Failure("The command failed unexpectedly. Check the server log for details.", throwable)
+
+        val activeHooks = ArrayList<ShimeCommandHook>(globalHooks.size + node.commandHooks.size)
+        activeHooks += globalHooks
+        activeHooks += node.commandHooks
+        val startedAt = System.nanoTime()
+        var cancelled = false
+        for (hook in activeHooks) {
+            try {
+                if (!hook.beforeExecution(context)) {
+                    cancelled = true
+                    break
+                }
+            } catch (throwable: Throwable) {
+                logger.warn(
+                    ShimeLogCategory.COMMAND,
+                    "Command hook ${hook.javaClass.name} failed before '${node.path}'.",
+                    throwable
+                )
+            }
         }
+
+        val result: ShimeCommandResult
+        var executionNanos = 0L
+        if (cancelled) {
+            result = ShimeCommandResult.Cancelled
+        } else {
+            val executionStartedAt = System.nanoTime()
+            result = try {
+                executor.execute(context, arguments)
+            } catch (exception: ShimeCommandArgumentException) {
+                ShimeCommandResult.Failure(exception.message ?: "Invalid command input.", exception)
+            } catch (throwable: Throwable) {
+                logger.error(ShimeLogCategory.COMMAND, "Command '/$label ${args.joinToString(" ")}' failed.", throwable)
+                ShimeCommandResult.Failure("The command failed unexpectedly. Check the server log for details.", throwable)
+            }
+            executionNanos = System.nanoTime() - executionStartedAt
+            activeHooks.asReversed().forEach { hook ->
+                try {
+                    hook.afterExecution(context, result)
+                } catch (throwable: Throwable) {
+                    logger.warn(
+                        ShimeLogCategory.COMMAND,
+                        "Command hook ${hook.javaClass.name} failed after '${node.path}'.",
+                        throwable
+                    )
+                }
+            }
+            executionStats.computeIfAbsent(node.path) { MutableExecutionStats() }
+                .record(result.isSuccess, executionNanos, System.currentTimeMillis())
+        }
+        val finishedAt = System.currentTimeMillis()
+        auditLog.record(
+            ShimeCommandAuditEntry(
+                timestampMillis = finishedAt,
+                senderName = sender.name,
+                senderId = senderKey,
+                commandPath = node.path,
+                label = label,
+                arguments = args.toList(),
+                resultType = result.javaClass.simpleName,
+                success = result.isSuccess,
+                durationNanos = System.nanoTime() - startedAt
+            )
+        )
         reportResult(sender, node, label, result)
         logger.debug(
             ShimeLogCategory.COMMAND,
@@ -262,10 +424,14 @@ class ShimeCommandManager(
                 plugin = plugin,
                 scheduler = scheduler
             )
-            try {
-                suggestions += node.arguments[argumentIndex].argument.complete(context, partial)
-            } catch (throwable: Throwable) {
-                logger.warn(ShimeLogCategory.COMMAND, "Tab completion for '${node.path}' failed.", throwable)
+            val spec = node.arguments[argumentIndex]
+            val allowed = spec.completionPermission == null || sender.hasPermission(spec.completionPermission)
+            if (allowed) {
+                try {
+                    suggestions += spec.argument.complete(context, partial)
+                } catch (throwable: Throwable) {
+                    logger.warn(ShimeLogCategory.COMMAND, "Tab completion for '${node.path}' failed.", throwable)
+                }
             }
         }
         node.tabCompleter?.let { completer ->
@@ -295,6 +461,22 @@ class ShimeCommandManager(
     /** [node] のヘルプを [sender] に送信する。 */
     fun sendHelp(sender: CommandSender, node: ShimeCommandNode, label: String = node.name) {
         node.helpLines(label).forEach(sender::sendMessage)
+    }
+
+    private fun reportArgumentError(
+        sender: CommandSender,
+        node: ShimeCommandNode,
+        label: String,
+        index: Int,
+        spec: ShimeCommandArgumentSpec,
+        input: String,
+        exception: ShimeCommandArgumentException
+    ) {
+        val position = (exception.argumentIndex ?: index) + 1
+        val name = exception.argumentName ?: spec.name
+        val value = exception.input ?: input
+        sender.sendMessage("Invalid argument #$position <$name> ('$value'): ${exception.message}")
+        sender.sendMessage(node.usageLine(label))
     }
 
     private fun canUse(sender: CommandSender, node: ShimeCommandNode): Boolean {
@@ -362,6 +544,7 @@ class ShimeCommandManager(
                 )
             }
             ShimeCommandResult.SilentSuccess -> Unit
+            ShimeCommandResult.Cancelled -> Unit
         }
     }
 

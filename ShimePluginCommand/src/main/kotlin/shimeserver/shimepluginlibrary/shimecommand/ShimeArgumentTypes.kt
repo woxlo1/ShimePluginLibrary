@@ -152,6 +152,28 @@ object ShimeArgumentTypes {
         }
     }
 
+    /**
+     * 列挙型を型消去して扱うパーサー。アノテーション方式のように、実行時の `Class` から
+     * 列挙値を受け取る必要がある場合に使う。
+     */
+    @JvmStatic
+    fun enumArgument(type: Class<*>): ShimeArgument<Enum<*>> {
+        require(type.isEnum) { "${type.name} is not an enum type." }
+        val constants = type.enumConstants.map { it as Enum<*> }
+        return argument(
+            type.simpleName,
+            completer = { _, partial ->
+                constants.map { it.name }.filter { it.startsWith(partial, ignoreCase = true) }
+            }
+        ) { input ->
+            constants.firstOrNull { it.name.equals(input, ignoreCase = true) }
+                ?: throw ShimeCommandArgumentException(
+                    "'$input' is not a valid ${type.simpleName}. Valid values: " +
+                        constants.joinToString { it.name } + "."
+                )
+        }
+    }
+
     /** 固定された文字列集合のうちの1つ。[values] に含まれる正規の表記が返される。 */
     @JvmStatic
     fun choice(values: Collection<String>): ShimeArgument<String> {

@@ -22,6 +22,9 @@ sealed class ShimeCommandResult {
     /** コマンドが何も送信せずに完了した。 */
     object SilentSuccess : ShimeCommandResult()
 
+    /** 実行前フックが実行を中止した。フック側が必要なメッセージを送信する。 */
+    object Cancelled : ShimeCommandResult()
+
     val isSuccess: Boolean
         get() = this is Success || this === SilentSuccess
 }

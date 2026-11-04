@@ -12,13 +12,17 @@ data class ShimeCommandExecutionStats(
     val successes: Long,
     val failures: Long,
     val totalDurationNanos: Long,
-    val lastExecutedMillis: Long
+    val lastExecutedMillis: Long,
+    val minDurationNanos: Long = 0L,
+    val maxDurationNanos: Long = 0L
 ) {
     init {
         require(executions >= 0) { "Execution count must not be negative." }
         require(successes >= 0) { "Success count must not be negative." }
         require(failures >= 0) { "Failure count must not be negative." }
         require(totalDurationNanos >= 0) { "Total duration must not be negative." }
+        require(minDurationNanos >= 0) { "Minimum duration must not be negative." }
+        require(maxDurationNanos >= minDurationNanos) { "Maximum duration must not be smaller than minimum duration." }
     }
 
     /** 実行 1 回あたりの平均時間。実行がない場合は 0。 */
