@@ -52,7 +52,7 @@ Paper API は `compileOnly` のため JAR には含まれません。
 ## GitHub Packages からの利用
 
 `ShimePluginLibrary`、`ShimePluginCommand`、`ShimePluginNMS` は GitHub Packages の Maven リポジトリへ
-公開できます。公開は `v*` タグの push、または GitHub Actions の手動実行で行われます。
+公開できます。公開は `v*` タグの push でのみ行われます。
 バージョンはタグ名から `v` を除いた値（例: `v1.2.3` → `1.2.3`）になります。
 
 利用側の `build.gradle`:
