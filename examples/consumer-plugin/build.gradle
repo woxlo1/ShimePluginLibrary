@@ -1,0 +1,52 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '2.0.21'
+}
+
+group = 'shimeserver'
+version = '1.0.0'
+
+def shimeVersion = findProperty('shimeVersion') ?: '1.1.0'
+def artifactSource = findProperty('shimeArtifactSource') ?: 'github'
+
+repositories {
+    if (artifactSource == 'local') {
+        // publishToMavenLocal で配置した成果物を、公開物と同じ座標で検証する
+        mavenLocal()
+    } else {
+        maven {
+            name = 'GitHubPackages'
+            url = uri('https://maven.pkg.github.com/woxlo1/ShimePluginLibrary')
+            credentials {
+                username = System.getenv('GITHUB_ACTOR') ?: findProperty('gpr.user')
+                password = System.getenv('GITHUB_TOKEN') ?: findProperty('gpr.key')
+            }
+        }
+    }
+    mavenCentral()
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+dependencies {
+    compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
+
+    implementation "shimeserver:shimepluginlibrary:${shimeVersion}"
+    implementation "shimeserver:shimeplugincommand:${shimeVersion}"
+    implementation "shimeserver:shimepluginnms:${shimeVersion}"
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
