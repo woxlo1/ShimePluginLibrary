@@ -1,6 +1,6 @@
 # ShimePluginLibrary
 
-Paper 1.20.6 / Java 21 を対象とした、Minecraft プラグイン開発用の共通ライブラリです。
+Paper 1.20.6 を基準に、1.21.8 の NMS バージョン検出にも対応した、Minecraft プラグイン開発用の共通ライブラリです。
 設定、データベース、キャッシュ、プレイヤー、アイテム、GUI、コマンド、スコアボード、経済、ワールド、
 モジュール、外部プラグイン連携などを、再利用可能な API として提供します。
 
@@ -18,7 +18,8 @@ GUI や Config などを個別の Gradle モジュールには分割していま
 
 ## 必要環境
 
-- Paper 1.20.6
+- Paper 1.20.6（ビルドと実行の基準）
+- Paper 1.21.8（NMS のバージョン検出）
 - Java 21
 - Gradle 8.5（同梱の Gradle Wrapper を使用）
 
@@ -277,7 +278,12 @@ SQLite は接続プールを 1 接続に制限します。MySQL / MariaDB では
 
 `ShimePluginNMS` は NMS 依存処理をコアから分離するためのモジュールです。
 
-- 同梱の `ShimePaper1206Adapter` は **バージョン検出のみ** を実装しています。
+- 同梱の `ShimePaper1206Adapter` は Paper 1.20.6 を、`ShimePaper1218Adapter` は Paper 1.21.8 を対象とし、
+  どちらも **バージョン検出のみ** を実装しています。
+- `ShimeMinecraftVersion.BUILT_IN_SUPPORTED_VERSIONS` に、同梱アダプターが明示的にサポートする
+  バージョン（1.20.6 と 1.21.8）が定義されています。
+- 1.21.8 の内部クラスやパケット形式はバージョン間で変化するため、検証なしに内部 API を呼び出すことは
+  ありません。パケット転送が必要な場合は、対象バージョンで検証済みの `ShimeNmsAdapter` を登録してください。
 - 生のパケット転送は同梱していません。パケット操作が必要な場合は、外部ライブラリを任意の
   `ShimeIntegration` として接続するか、独自の `ShimeNmsAdapter` を登録してください。
 - 検証済みのトランスポートがない状態でパケット操作を呼ぶと
