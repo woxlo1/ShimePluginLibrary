@@ -2,7 +2,9 @@ package shimeserver.shimepluginlibrary.shimeapi
 
 import org.bukkit.plugin.java.JavaPlugin
 import shimeserver.shimepluginlibrary.shimeconfig.ShimeConfigManager
+import shimeserver.shimepluginlibrary.shimeentity.ShimeEntityService
 import shimeserver.shimepluginlibrary.shimeevent.ShimeEventManager
+import shimeserver.shimepluginlibrary.shimeitem.ShimeItemManager
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogger
 import shimeserver.shimepluginlibrary.shimemessage.ShimeMessageManager
@@ -88,6 +90,25 @@ class ShimePluginScope internal constructor(
     val messageManager: ShimeMessageManager = scoped(
         ShimeMessageManager(plugin, logger, scheduler, legacyMessagesRoot())
     )
+
+    /**
+     * 利用側プラグインの名前空間でアイテムを識別するアイテムマネージャー。
+     *
+     * 新しいタグは利用側プラグインの名前空間 (`<plugin>:item_id` など) に書き込まれる。1.1.0 以前の
+     * `shimepluginlibrary:*` タグも読み取れるため、既存のカスタムアイテムはそのまま識別できる。
+     */
+    val itemManager: ShimeItemManager by lazy {
+        scoped(ShimeItemManager(plugin, logger, library.context.plugin))
+    }
+
+    /**
+     * 利用側プラグインの名前空間でエンティティをタグ付けするサービス。
+     *
+     * 新しいタグは利用側プラグインの名前空間へ書き込まれ、旧 `shimepluginlibrary:*` タグも読み取れる。
+     */
+    val entityService: ShimeEntityService by lazy {
+        scoped(ShimeEntityService(plugin, library.context.plugin))
+    }
 
     private val closed = AtomicBoolean(false)
 

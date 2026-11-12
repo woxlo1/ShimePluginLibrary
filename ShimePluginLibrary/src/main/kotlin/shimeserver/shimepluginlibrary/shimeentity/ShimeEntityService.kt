@@ -15,12 +15,24 @@ import java.util.UUID
  *
  * タグは永続データコンテナに保存されるため、チャンクの保存をまたいで維持され、カスタム名によって
  * 偽装することはできない。
+ *
+ * 新しいタグは [plugin] の名前空間へ書き込みます。[legacyPlugin] を指定すると、1.1.0 以前に
+ * `shimepluginlibrary` 名前空間で付与されたタグも読み取れます。
  */
 class ShimeEntityService(
-    private val plugin: JavaPlugin
+    private val plugin: JavaPlugin,
+    legacyPlugin: JavaPlugin? = null
 ) : ShimeAbstractService(SERVICE_NAME) {
     private val tagKey = NamespacedKey(plugin, "entity_tag")
     private val ownerKey = NamespacedKey(plugin, "entity_owner")
+    private val legacyKeys = legacyPlugin
+        ?.takeIf { it.name != plugin.name }
+        ?.let { LegacyKeys(it) }
+
+    private class LegacyKeys(plugin: JavaPlugin) {
+        val tag = NamespacedKey(plugin, "entity_tag")
+        val owner = NamespacedKey(plugin, "entity_owner")
+    }
 
     override fun onInitialize(context: ShimeContext) {
         // ステートレスなサービス。キーは一度だけ生成される。
@@ -33,25 +45,32 @@ class ShimeEntityService(
     }
 
     fun tagOf(entity: Entity): String? {
-        return entity.persistentDataContainer.get(tagKey, PersistentDataType.STRING)
+        val pdc = entity.persistentDataContainer
+        return pdc.get(tagKey, PersistentDataType.STRING)
+            ?: legacyKeys?.let { pdc.get(it.tag, PersistentDataType.STRING) }
     }
 
     fun clearTag(entity: Entity) {
         entity.persistentDataContainer.remove(tagKey)
+        legacyKeys?.let { entity.persistentDataContainer.remove(it.tag) }
     }
 
     fun setOwner(entity: Entity, owner: UUID?) {
         val pdc = entity.persistentDataContainer
         if (owner == null) {
             pdc.remove(ownerKey)
+            legacyKeys?.let { pdc.remove(it.owner) }
         } else {
             pdc.set(ownerKey, PersistentDataType.STRING, owner.toString())
         }
     }
 
     fun ownerOf(entity: Entity): UUID? {
-        return entity.persistentDataContainer.get(ownerKey, PersistentDataType.STRING)
-            ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        val pdc = entity.persistentDataContainer
+        val raw = pdc.get(ownerKey, PersistentDataType.STRING)
+            ?: legacyKeys?.let { pdc.get(it.owner, PersistentDataType.STRING) }
+            ?: return null
+        return runCatching { UUID.fromString(raw) }.getOrNull()
     }
 
     fun findTagged(world: World, tag: String): List<Entity> {
