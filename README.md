@@ -98,21 +98,29 @@ softdepend: [ShimePluginLibrary]
 初期化済みのインスタンスを取得してください。独自に `ShimeLibrary` を構築すると、サービスグラフと
 データベースプールが二重に作られるため避けてください。
 
+利用側プラグイン固有の設定、ストレージ、リスナー、タスクには `library.forPlugin(this)` が返す
+`ShimePluginScope` を使用します。スコープはプラグインごとにキャッシュされ、プラグインの無効化時に
+自動で解放されます。
+
 ```kotlin
 import org.bukkit.plugin.java.JavaPlugin
 import shimeserver.shimepluginlibrary.shimeapi.ShimeLibrary
+import shimeserver.shimepluginlibrary.shimeapi.ShimePluginScope
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 
 class SamplePlugin : JavaPlugin() {
+    private lateinit var shime: ShimePluginScope
+
     override fun onEnable() {
         val library = ShimeLibrary.get()
+        shime = library.forPlugin(this)
 
-        library.logger.info(ShimeLogCategory.CORE, "SamplePlugin started.")
+        shime.logger.info(ShimeLogCategory.CORE, "SamplePlugin started.")
 
-        val config = library.configManager.create("sample", "sample.yml")
+        val config = shime.configManager.create("sample", "sample.yml")
         val greeting = config.getString("greeting", "Hello!") ?: "Hello!"
 
-        library.scheduler.runRepeating(0L, 20L * 60L) {
+        shime.scheduler.runRepeating(0L, 20L * 60L) {
             logger.info(greeting)
         }
     }
@@ -123,7 +131,8 @@ Java から利用する場合:
 
 ```java
 ShimeLibrary library = ShimeLibrary.get();
-ShimeConfig config = library.getConfigManager().create("sample", "sample.yml", true);
+ShimePluginScope shime = library.forPlugin(this);
+ShimeConfig config = shime.getConfigManager().create("sample", "sample.yml", true);
 ```
 
 ## 主な API
@@ -153,6 +162,31 @@ ShimeConfig config = library.getConfigManager().create("sample", "sample.yml", t
 | `moduleManager` | 機能モジュールの依存関係順ライフサイクル。 |
 | `integrationManager` | 外部プラグイン連携の任意登録。 |
 | `inventoryService` | インベントリのスナップショット、シリアライズ、復元。 |
+
+`ShimeLibrary` のマネージャーはライブラリ全体で共有されます。利用側プラグイン固有の状態を扱う場合は、
+`library.forPlugin(this)` が返す `ShimePluginScope` を使用してください。
+
+| スコープのプロパティ | 用途 |
+| --- | --- |
+| `logger` | 利用側プラグインのロガーを使うログ出力。 |
+| `scheduler` | 利用側プラグインが所有するタスク。解放時にキャンセル。 |
+| `configManager` | 利用側のデータフォルダと JAR を使う設定。 |
+| `eventManager` | 利用側を所有者とするリスナーと購読。解放時に解除。 |
+| `storageManager` | 利用側の `storage/` 配下に保存するストレージ。 |
+| `messageManager` | 利用側の `messages/` を優先し、共有ファイルで補完。 |
+| `itemManager` | 利用側の名前空間でアイテムを識別。旧タグも読み取り可能。 |
+| `entityService` | 利用側の名前空間でエンティティをタグ付け。旧タグも読み取り可能。 |
+
+スコープは `PluginDisableEvent` と `ShimeLibrary.shutdown()` で自動的に解放されます。既存の
+`library.logger`、`library.configManager` などの共有 API はそのまま利用できます。
+
+既存データとの互換性:
+
+- ストレージは利用側の `storage/` へ書き込み、1.1.0 以前の共有 `storage/` は読み取り専用で参照します。
+- メッセージは利用側の `messages/` を優先し、不足分だけ共有 `messages/` から補完します。
+- アイテムとエンティティのタグは利用側の名前空間へ書き込み、旧 `shimepluginlibrary:*` タグも読み取ります。
+- データベース経済のテーブル名 (`shime_economy_*`) とスコアボードの objective 名 (`shime_sidebar`) は
+  共有グローバルです。変更していません。
 
 詳細は [docs/API.md](docs/API.md) を参照してください。
 
@@ -302,6 +336,8 @@ LuckPerms、PlaceholderAPI、Vault、ProtocolLib、PacketEvents などは必須�
 - 初期化は依存関係順、停止はその逆順です。循環依存は検出され、例外になります。
 - 機能単位のモジュールは `ShimeModule` と `ShimeModuleManager` を使用します。
 - すべてのマネージャーは `ShimeAbstractService` を継承し、Paper のリスナー登録も自身で解除します。
+- 利用側プラグイン固有のマネージャーは `ShimePluginScope` が所有し、`PluginDisableEvent` または
+  `ShimeLibrary.shutdown()` で解放されます。
 
 ## サンプル
 
@@ -318,9 +354,9 @@ cd examples/sample-plugin
 
 ```bash
 # ローカル公開物で座標と POM を検証する場合
-./gradlew publishToMavenLocal --project-prop releaseVersion=1.1.0
+./gradlew publishToMavenLocal --project-prop releaseVersion=1.1.1
 cd examples/consumer-plugin
-../../gradlew -p . build -PshimeArtifactSource=local -PshimeVersion=1.1.0
+../../gradlew -p . build -PshimeArtifactSource=local -PshimeVersion=1.1.1
 ```
 
 GitHub Packages の公開物を直接検証する場合は、`read:packages` 権限を持つトークンを設定し、
