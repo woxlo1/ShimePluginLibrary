@@ -5,9 +5,11 @@ import shimeserver.shimepluginlibrary.shimeconfig.ShimeConfigManager
 import shimeserver.shimepluginlibrary.shimeevent.ShimeEventManager
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogger
+import shimeserver.shimepluginlibrary.shimemessage.ShimeMessageManager
 import shimeserver.shimepluginlibrary.shimescheduler.ShimeScheduler
 import shimeserver.shimepluginlibrary.shimeservice.ShimeService
 import shimeserver.shimepluginlibrary.shimestorage.ShimeStorageManager
+import java.io.File
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -77,6 +79,16 @@ class ShimePluginScope internal constructor(
         ShimeStorageManager(plugin, logger, legacyStorageRoot())
     )
 
+    /**
+     * 利用側プラグインの `messages/` を優先するメッセージマネージャー。
+     *
+     * 利用側の言語ファイルにないロケールやキーは、ライブラリの共有 `messages/` から補完される。
+     * 利用側の値が常に優先され、デフォルト言語の書き出しは利用側プラグインの JAR から行われる。
+     */
+    val messageManager: ShimeMessageManager = scoped(
+        ShimeMessageManager(plugin, logger, scheduler, legacyMessagesRoot())
+    )
+
     private val closed = AtomicBoolean(false)
 
     /** このスコープが解放済みかどうか。解放後のスコープは再利用できない。 */
@@ -126,6 +138,13 @@ class ShimePluginScope internal constructor(
     private fun legacyStorageRoot(): Path? {
         val legacy = library.context.dataFolder.toPath().resolve("storage")
         val current = plugin.dataFolder.toPath().resolve("storage")
+        return legacy.takeIf { it != current }
+    }
+
+    /** ライブラリの共有メッセージ。利用側と同一の場所ならフォールバックは不要。 */
+    private fun legacyMessagesRoot(): File? {
+        val legacy = library.context.dataFolder.resolve("messages")
+        val current = plugin.dataFolder.resolve("messages")
         return legacy.takeIf { it != current }
     }
 }

@@ -134,6 +134,7 @@ class ShimePluginScopeTest {
 
         try {
             val scope = library.forPlugin(plugin("QuestPluginV2", consumerLogger.name))
+            records.clear()
             scope.logger.info(ShimeLogCategory.CORE, "hello from the consumer")
 
             assertEquals(1, records.size)
