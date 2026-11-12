@@ -1,8 +1,12 @@
 package shimeserver.shimepluginlibrary.shimeapi
 
 import org.bukkit.plugin.java.JavaPlugin
+import shimeserver.shimepluginlibrary.shimeconfig.ShimeConfigManager
+import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogger
 import shimeserver.shimepluginlibrary.shimescheduler.ShimeScheduler
+import shimeserver.shimepluginlibrary.shimeservice.ShimeService
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -36,6 +40,20 @@ class ShimePluginScope internal constructor(
      */
     val scheduler: ShimeScheduler = ShimeScheduler(plugin, logger)
 
+    private val context: ShimeContext = ShimeContext(plugin, library, logger, scheduler, plugin.dataFolder)
+    private val scopedServices = CopyOnWriteArrayList<ShimeService>()
+
+    /**
+     * 利用側プラグインのデータフォルダを使う設定マネージャー。
+     *
+     * [create] で作られる設定ファイルはライブラリのデータフォルダではなく、利用側プラグインの
+     * データフォルダ直下に保存される。埋め込みリソースも利用側プラグインの JAR から読み込まれる。
+     * スコープの解放時には登録済みの設定が保存される。
+     *
+     * ライブラリ共有の設定は従来どおり [ShimeLibrary.configManager] を利用できる。
+     */
+    val configManager: ShimeConfigManager = scoped(ShimeConfigManager(plugin, logger))
+
     private val closed = AtomicBoolean(false)
 
     /** このスコープが解放済みかどうか。解放後のスコープは再利用できない。 */
@@ -45,18 +63,39 @@ class ShimePluginScope internal constructor(
     /**
      * このスコープが所有するリソースを解放する。
      *
-     * このメソッドは冪等であり、複数回呼び出しても安全である。解放に成功したスコープは
-     * ライブラリのキャッシュから取り除かれるため、再度 [ShimeLibrary.forPlugin] を呼ぶと
-     * 新しいインスタンスが返る。
+     * このメソッドは冪等であり、複数回呼び出しても安全である。スコープが所有するサービスは作成の
+     * 逆順で停止し、追跡中のタスクは取り消される。解放に成功したスコープはライブラリのキャッシュから
+     * 取り除かれるため、再度 [ShimeLibrary.forPlugin] を呼ぶと新しいインスタンスが返る。
      */
     override fun close() {
         if (!closed.compareAndSet(false, true)) {
             return
         }
         try {
-            scheduler.cancelAll()
+            scopedServices.asReversed().forEach { service ->
+                try {
+                    service.shutdown()
+                } catch (throwable: Throwable) {
+                    logger.warn(
+                        ShimeLogCategory.CORE,
+                        "Could not shut down scoped service '${service.serviceName}'.",
+                        throwable
+                    )
+                }
+            }
         } finally {
-            library.forgetScope(this)
+            try {
+                scheduler.cancelAll()
+            } finally {
+                library.forgetScope(this)
+            }
         }
+    }
+
+    /** [service] をこのスコープの管理下に置き、利用側プラグイン向けのコンテキストで初期化する。 */
+    private fun <T : ShimeService> scoped(service: T): T {
+        scopedServices += service
+        service.initialize(context)
+        return service
     }
 }
