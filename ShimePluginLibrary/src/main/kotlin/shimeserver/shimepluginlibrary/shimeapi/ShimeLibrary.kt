@@ -42,6 +42,13 @@ import java.util.concurrent.ConcurrentHashMap
  * 利用側プラグインに揃える。既存のプロパティは 1.1.0 との互換性のために維持されている。
  */
 class ShimeLibrary(private val plugin: JavaPlugin) {
+    /**
+     * ライブラリ本体のロガー。
+     *
+     * このロガーの出力は `[ShimePluginLibrary]` の接頭辞で記録される。ライブラリ自身の内部ログには
+     * そのままでよいが、利用側プラグインの処理から出力する場合は [forPlugin] が返すスコープの
+     * [ShimePluginScope.logger] を使い、接頭辞を利用側プラグイン名に揃えること。
+     */
     val logger: ShimeLogger = ShimeLogger(plugin.logger)
     val scheduler: ShimeScheduler = ShimeScheduler(plugin, logger)
     val services: ShimeServiceRegistry = ShimeServiceRegistry(logger)

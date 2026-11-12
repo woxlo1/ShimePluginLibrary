@@ -8,6 +8,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito
+import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 import java.lang.reflect.Field
 import java.nio.file.Files
 import java.util.concurrent.Callable
@@ -44,11 +45,11 @@ class ShimePluginScopeTest {
         field.set(null, server)
     }
 
-    private fun plugin(name: String): JavaPlugin {
+    private fun plugin(name: String, loggerName: String = name): JavaPlugin {
         val plugin = Mockito.mock(JavaPlugin::class.java)
         val dataFolder = Files.createTempDirectory("shime-scope-$name").toFile()
         Mockito.`when`(plugin.name).thenReturn(name)
-        Mockito.`when`(plugin.logger).thenReturn(Logger.getLogger(name))
+        Mockito.`when`(plugin.logger).thenReturn(Logger.getLogger(loggerName))
         Mockito.`when`(plugin.dataFolder).thenReturn(dataFolder)
         return plugin
     }
@@ -112,6 +113,36 @@ class ShimePluginScopeTest {
         assertTrue(consumerScope.isClosed)
         assertFalse(otherScope.isClosed)
         assertEquals(listOf(otherScope), library.scopes())
+    }
+
+    @Test
+    fun `scope logger records messages under the consuming plugin name`() {
+        val library = library()
+        val records = java.util.Collections.synchronizedList(ArrayList<java.util.logging.LogRecord>())
+        val consumerLogger = Logger.getLogger("QuestPluginV2")
+        consumerLogger.useParentHandlers = false
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) {
+                records += record
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        consumerLogger.addHandler(handler)
+
+        try {
+            val scope = library.forPlugin(plugin("QuestPluginV2", consumerLogger.name))
+            scope.logger.info(ShimeLogCategory.CORE, "hello from the consumer")
+
+            assertEquals(1, records.size)
+            assertEquals("QuestPluginV2", records.first().loggerName)
+            assertEquals("[core] hello from the consumer", records.first().message)
+            assertNotSame(library.logger, scope.logger)
+        } finally {
+            consumerLogger.removeHandler(handler)
+        }
     }
 
     @Test

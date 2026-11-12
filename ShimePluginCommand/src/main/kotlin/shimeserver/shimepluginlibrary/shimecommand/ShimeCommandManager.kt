@@ -24,6 +24,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  * これはすべてのコマンドを静的に列挙できないプラグインに有用である。動的コマンドはシャットダウン時に
  * 登録解除される。
  *
+ * 利用側プラグインは `logger` に `ShimeLibrary.forPlugin(plugin).logger` を渡すこと。ライブラリ本体の
+ * ロガーを渡すと、コマンドの診断メッセージが `[ShimePluginLibrary]` の接頭辞で記録されてしまう。
+ *
  * ルートコマンドが認識された時点で振り分けは常に true を返すため、検証に失敗しても Paper が独自の
  * 使用方法メッセージを出力することはない。
  */
