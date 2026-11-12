@@ -7,11 +7,17 @@ import shimeserver.shimepluginlibrary.shimevalidation.ShimeValidation
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** キーごとに 1 つの JSON ファイルを持ち、Gson でシリアライズする。 */
+/**
+ * キーごとに 1 つの JSON ファイルを持ち、Gson でシリアライズする。
+ *
+ * [fallbackDirectory] を指定すると、プライマリのディレクトリにファイルが存在しない場合に限り、
+ * そのディレクトリから読み込む。新しい保存は常に [directory] へ書き込む。
+ */
 class ShimeJsonStorage<T : Any>(
     override val name: String,
     private val directory: Path,
-    private val type: Class<T>
+    private val type: Class<T>,
+    private val fallbackDirectory: Path? = null
 ) : ShimeStorage<T> {
     private val gson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()
 
@@ -21,10 +27,7 @@ class ShimeJsonStorage<T : Any>(
     }
 
     override fun load(key: String): T? {
-        val file = fileFor(key)
-        if (!Files.exists(file)) {
-            return null
-        }
+        val file = readFileFor(key) ?: return null
         try {
             return gson.fromJson(ShimeFiles.readText(file), type)
         } catch (exception: Exception) {
@@ -48,9 +51,29 @@ class ShimeJsonStorage<T : Any>(
         }
     }
 
-    override fun exists(key: String): Boolean = Files.exists(fileFor(key))
+    override fun exists(key: String): Boolean = readFileFor(key) != null
 
     override fun keys(): Set<String> {
+        val keys = LinkedHashSet<String>()
+        keys += keysIn(directory)
+        fallbackDirectory?.let { keys += keysIn(it) }
+        return keys
+    }
+
+    override fun close() {
+        // ファイルは操作ごとに開かれるため、永続的に閉じるものはない。
+    }
+
+    /** 読み込みに使う実在するファイルを返す。プライマリを優先し、なければフォールバックを見る。 */
+    private fun readFileFor(key: String): Path? {
+        val primary = fileFor(key)
+        if (Files.exists(primary)) {
+            return primary
+        }
+        return fallbackFileFor(key)?.takeIf { Files.exists(it) }
+    }
+
+    private fun keysIn(directory: Path): Set<String> {
         if (!Files.exists(directory)) {
             return emptySet()
         }
@@ -62,12 +85,17 @@ class ShimeJsonStorage<T : Any>(
         }
     }
 
-    override fun close() {
-        // ファイルは操作ごとに開かれるため、永続的に閉じるものはない。
-    }
-
     private fun fileFor(key: String): Path {
         val safeKey = ShimeValidation.requireSafeKey(key, "storage key")
         return ShimeFiles.resolveWithin(directory, "$safeKey.json")
+    }
+
+    private fun fallbackFileFor(key: String): Path? {
+        val fallback = fallbackDirectory ?: return null
+        if (fallback == directory) {
+            return null
+        }
+        val safeKey = ShimeValidation.requireSafeKey(key, "storage key")
+        return ShimeFiles.resolveWithin(fallback, "$safeKey.json")
     }
 }

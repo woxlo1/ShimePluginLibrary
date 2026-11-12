@@ -7,6 +7,8 @@ import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogger
 import shimeserver.shimepluginlibrary.shimescheduler.ShimeScheduler
 import shimeserver.shimepluginlibrary.shimeservice.ShimeService
+import shimeserver.shimepluginlibrary.shimestorage.ShimeStorageManager
+import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -64,6 +66,17 @@ class ShimePluginScope internal constructor(
      */
     val eventManager: ShimeEventManager = scoped(ShimeEventManager(plugin, logger))
 
+    /**
+     * 利用側プラグインの `storage/` 配下を使うストレージマネージャー。
+     *
+     * 新しいデータは利用側プラグインのデータフォルダに保存される。1.1.0 以前にライブラリの共有
+     * フォルダへ保存されたデータは、同じ名前のストレージに限り読み取り専用のフォールバックとして
+     * 参照される。スコープの解放時には、このマネージャーが開いたストレージが閉じられる。
+     */
+    val storageManager: ShimeStorageManager = scoped(
+        ShimeStorageManager(plugin, logger, legacyStorageRoot())
+    )
+
     private val closed = AtomicBoolean(false)
 
     /** このスコープが解放済みかどうか。解放後のスコープは再利用できない。 */
@@ -107,5 +120,12 @@ class ShimePluginScope internal constructor(
         scopedServices += service
         service.initialize(context)
         return service
+    }
+
+    /** ライブラリの共有ストレージ。利用側と同一の場所ならフォールバックは不要。 */
+    private fun legacyStorageRoot(): Path? {
+        val legacy = library.context.dataFolder.toPath().resolve("storage")
+        val current = plugin.dataFolder.toPath().resolve("storage")
+        return legacy.takeIf { it != current }
     }
 }

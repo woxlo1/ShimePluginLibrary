@@ -7,11 +7,18 @@ import shimeserver.shimepluginlibrary.shimevalidation.ShimeValidation
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** キーごとに 1 つの YAML ファイル。小〜中規模のレコードに適している。 */
+/**
+ * キーごとに 1 つの YAML ファイル。小〜中規模のレコードに適している。
+ *
+ * [fallbackDirectory] を指定すると、プライマリのディレクトリにファイルが存在しない場合に限り、
+ * そのディレクトリから読み込む。これは利用側プラグインごとの保存先へ移行する前の共有データを
+ * 読み取り専用で参照するためのものである。新しい保存は常に [directory] へ書き込む。
+ */
 class ShimeYamlStorage<T : Any>(
     override val name: String,
     private val directory: Path,
-    private val codec: ShimeStorageCodec<T>
+    private val codec: ShimeStorageCodec<T>,
+    private val fallbackDirectory: Path? = null
 ) : ShimeStorage<T> {
     init {
         require(name.isNotBlank()) { "Storage name must not be blank." }
@@ -19,10 +26,7 @@ class ShimeYamlStorage<T : Any>(
     }
 
     override fun load(key: String): T? {
-        val file = fileFor(key)
-        if (!Files.exists(file)) {
-            return null
-        }
+        val file = readFileFor(key) ?: return null
         try {
             val yaml = YamlConfiguration.loadConfiguration(file.toFile())
             @Suppress("UNCHECKED_CAST")
@@ -51,9 +55,29 @@ class ShimeYamlStorage<T : Any>(
         }
     }
 
-    override fun exists(key: String): Boolean = Files.exists(fileFor(key))
+    override fun exists(key: String): Boolean = readFileFor(key) != null
 
     override fun keys(): Set<String> {
+        val keys = LinkedHashSet<String>()
+        keys += keysIn(directory)
+        fallbackDirectory?.let { keys += keysIn(it) }
+        return keys
+    }
+
+    override fun close() {
+        // ファイルは操作ごとに開かれるため、永続的に閉じるものはない。
+    }
+
+    /** 読み込みに使う実在するファイルを返す。プライマリを優先し、なければフォールバックを見る。 */
+    private fun readFileFor(key: String): Path? {
+        val primary = fileFor(key)
+        if (Files.exists(primary)) {
+            return primary
+        }
+        return fallbackFileFor(key)?.takeIf { Files.exists(it) }
+    }
+
+    private fun keysIn(directory: Path): Set<String> {
         if (!Files.exists(directory)) {
             return emptySet()
         }
@@ -65,12 +89,17 @@ class ShimeYamlStorage<T : Any>(
         }
     }
 
-    override fun close() {
-        // ファイルは操作ごとに開かれるため、永続的に閉じるものはない。
-    }
-
     private fun fileFor(key: String): Path {
         val safeKey = ShimeValidation.requireSafeKey(key, "storage key")
         return ShimeFiles.resolveWithin(directory, "$safeKey.yml")
+    }
+
+    private fun fallbackFileFor(key: String): Path? {
+        val fallback = fallbackDirectory ?: return null
+        if (fallback == directory) {
+            return null
+        }
+        val safeKey = ShimeValidation.requireSafeKey(key, "storage key")
+        return ShimeFiles.resolveWithin(fallback, "$safeKey.yml")
     }
 }
