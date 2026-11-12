@@ -106,6 +106,7 @@ class ShimeCommandManager(
      *
      * @param commandName Bukkit のコマンド名。既定ではルートノードの名前になる。
      * @param dynamic true の場合、`plugin.yml` に存在しないコマンドがサーバーのコマンドマップを通じて登録される。
+     *   このとき、フォールバックプレフィックスにはプラグイン名の小文字を使い、他のプラグインとの衝突を避ける。
      * @throws ShimeCommandException 名前が不正な場合、すでに登録済みの場合、または登録できない場合。
      */
     @JvmOverloads
@@ -144,7 +145,8 @@ class ShimeCommandManager(
                 root = root
             )
             root.permission?.let(command::setPermission)
-            if (!command.register(plugin.server.commandMap)) {
+            val fallbackPrefix = plugin.name.lowercase(Locale.ROOT)
+            if (!plugin.server.commandMap.register(fallbackPrefix, command)) {
                 throw ShimeCommandException("The server rejected registration of dynamic command '$normalized'.")
             }
             Binding(root, normalized, null, command)
