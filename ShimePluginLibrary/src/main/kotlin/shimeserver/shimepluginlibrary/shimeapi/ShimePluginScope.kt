@@ -2,6 +2,7 @@ package shimeserver.shimepluginlibrary.shimeapi
 
 import org.bukkit.plugin.java.JavaPlugin
 import shimeserver.shimepluginlibrary.shimeconfig.ShimeConfigManager
+import shimeserver.shimepluginlibrary.shimeevent.ShimeEventManager
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogCategory
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogger
 import shimeserver.shimepluginlibrary.shimescheduler.ShimeScheduler
@@ -53,6 +54,15 @@ class ShimePluginScope internal constructor(
      * ライブラリ共有の設定は従来どおり [ShimeLibrary.configManager] を利用できる。
      */
     val configManager: ShimeConfigManager = scoped(ShimeConfigManager(plugin, logger))
+
+    /**
+     * 利用側プラグインに紐づくイベントマネージャー。
+     *
+     * [ShimeEventManager.registerListener] と [ShimeEventManager.subscribe] は利用側プラグインを
+     * 所有者として Paper に登録する。スコープの解放時には、このマネージャーが登録したリスナーと
+     * 購読がすべて解除される。
+     */
+    val eventManager: ShimeEventManager = scoped(ShimeEventManager(plugin, logger))
 
     private val closed = AtomicBoolean(false)
 
