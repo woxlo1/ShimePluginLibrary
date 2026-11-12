@@ -2,6 +2,7 @@ package shimeserver.shimepluginlibrary.shimeapi
 
 import org.bukkit.plugin.java.JavaPlugin
 import shimeserver.shimepluginlibrary.shimelogging.ShimeLogger
+import shimeserver.shimepluginlibrary.shimescheduler.ShimeScheduler
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -26,6 +27,15 @@ class ShimePluginScope internal constructor(
      */
     val logger: ShimeLogger = ShimeLogger(plugin.logger)
 
+    /**
+     * 利用側プラグインが所有するスケジューラー。
+     *
+     * このスケジューラーで作成したタスクは Bukkit 上でも利用側プラグインに紐づくため、利用側を
+     * 無効化するとサーバーによって停止される。加えてスコープの解放時に [ShimeScheduler.cancelAll] を
+     * 呼び、追跡中のタスクを明示的に取り消す。
+     */
+    val scheduler: ShimeScheduler = ShimeScheduler(plugin, logger)
+
     private val closed = AtomicBoolean(false)
 
     /** このスコープが解放済みかどうか。解放後のスコープは再利用できない。 */
@@ -43,6 +53,10 @@ class ShimePluginScope internal constructor(
         if (!closed.compareAndSet(false, true)) {
             return
         }
-        library.forgetScope(this)
+        try {
+            scheduler.cancelAll()
+        } finally {
+            library.forgetScope(this)
+        }
     }
 }
