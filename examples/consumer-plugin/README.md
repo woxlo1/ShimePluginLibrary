@@ -18,7 +18,7 @@ GitHub Packages の Maven リポジトリは、公開リポジトリのパッケ
 
 ```bash
 cd examples/consumer-plugin
-../../gradlew -p . build -PshimeArtifactSource=github -PshimeVersion=1.1.0
+../../gradlew -p . build -PshimeArtifactSource=github -PshimeVersion=1.1.1
 ```
 
 PowerShell の場合:
@@ -27,13 +27,13 @@ PowerShell の場合:
 $env:GITHUB_ACTOR = "your-account"
 $env:GITHUB_TOKEN = "token-with-read-packages"
 cd examples\consumer-plugin
-..\..\gradlew.bat -p . build -PshimeArtifactSource=github -PshimeVersion=1.1.0
+..\..\gradlew.bat -p . build -PshimeArtifactSource=github -PshimeVersion=1.1.1
 ```
 
 PowerShell では `-P...` が分割されることがあるため、次のように `--project-prop` を使用してください。
 
 ```powershell
-..\..\gradlew.bat -p . build --project-prop shimeArtifactSource=github --project-prop shimeVersion=1.1.0
+..\..\gradlew.bat -p . build --project-prop shimeArtifactSource=github --project-prop shimeVersion=1.1.1
 ```
 
 ## ローカル公開物で座標と POM を検証する
@@ -42,9 +42,9 @@ GitHub Packages の認証がない環境では、同じ座標をローカル Mav
 消費側の解決を検証できます。
 
 ```bash
-./gradlew publishToMavenLocal --project-prop releaseVersion=1.1.0
+./gradlew publishToMavenLocal --project-prop releaseVersion=1.1.1
 cd examples/consumer-plugin
-../../gradlew -p . build -PshimeArtifactSource=local -PshimeVersion=1.1.0
+../../gradlew -p . build -PshimeArtifactSource=local -PshimeVersion=1.1.1
 ```
 
 このモードは公開リポジトリへの到達性までは検証しません。POM の推移的依存関係と
@@ -57,7 +57,7 @@ GitHub Packages の公開成果物に対してビルドします。`GITHUB_TOKEN
 権限を使用するため、ローカルに `read:packages` トークンがない場合でも検証できます。
 
 1. Actions の `Verify Published Artifacts` を選択
-2. `version` に `1.1.0` などを入力して実行
+2. `version` に `1.1.1` などを入力して実行
 3. 利用者サンプルのビルドが成功すれば、公開座標と推移的依存関係が解決できている
 
 ## 確認できること

@@ -52,6 +52,7 @@ ShimePlugin.onDisable()
     ├── 管理コマンドを解除
     └── ShimeLibrary.shutdown()
         ├── 依存関係の逆順にサービスを停止
+        ├── プラグインスコープをすべて解放
         └── スケジューラー経由のタスクをすべてキャンセル
 ```
 
@@ -82,13 +83,70 @@ ShimePlugin.onDisable()
 `ShimeLibrary.get()` は初期化済みかつ `READY` のインスタンスだけを返します。利用側プラグインは
 `plugin.yml` の `depend` または `softdepend` で読み込み順を保証してください。
 
+## プラグインスコープ
+
+ライブラリの共有サービスは `ShimePlugin` が所有しますが、利用側プラグイン固有の状態を持つサービスは
+`ShimePluginScope` に分離します。`ShimeLibrary.forPlugin(plugin)` がプラグインごとに 1 つのスコープを
+生成し、`ConcurrentHashMap` でキャッシュします。
+
+```text
+ShimeLibrary
+├── 共有サービス（DB、キャッシュ、GUI、プレイヤー、スコアボード、経済など）
+└── ShimePluginScope (plugin ごと)
+    ├── logger          … 利用側プラグインのロガー
+    ├── scheduler       … 利用側プラグインが所有するタスク
+    ├── configManager   … 利用側のデータフォルダと JAR
+    ├── eventManager    … 利用側を所有者とするリスナー
+    ├── storageManager  … 利用側の storage/
+    ├── messageManager  … 利用側の messages/ + 共有フォールバック
+    ├── itemManager     … 利用側の名前空間（遅延生成）
+    └── entityService   … 利用側の名前空間（遅延生成）
+```
+
+スコープのサービスは、そのスコープ専用の `ShimeContext` で初期化されます。これにより Paper へ登録する
+リスナー、タスク、設定ファイルの所有者が利用側プラグインになり、ライブラリの無効化を待たずに
+利用側プラグインの無効化だけで解放できます。
+
+解放経路は 2 つです。
+
+- `ShimeScopeDisableListener` が利用側の `PluginDisableEvent` を受け取り、該当スコープを解放する。
+- `ShimeLibrary.shutdown()` が残っているすべてのスコープを解放する。
+
+`ShimePluginScope.close()` は冪等で、所有サービスを生成の逆順に停止し、スケジューラーのタスクを
+キャンセルしたうえでキャッシュから自身を削除します。
+
+### 後方互換のためのフォールバック
+
+1.1.0 以前は利用側プラグインのデータもライブラリの共有フォルダへ保存されていました。1.1.1 以降も
+既存データを失わないよう、次の読み取り専用フォールバックを持ちます。
+
+| データ | 新しい保存先 | 旧データの読み取り |
+| --- | --- | --- |
+| 設定 | 利用側のデータフォルダ | フォールバックなし |
+| ストレージ | 利用側の `storage/<name>` | ライブラリの `storage/<name>` を読み取り専用で参照 |
+| メッセージ | 利用側の `messages/` | 共有 `messages/` の不足ロケール・キーを補完 |
+| アイテム / エンティティのタグ | 利用側の名前空間 | `shimepluginlibrary:*` を読み取り |
+
+フォールバックは読み取り専用であり、新しい書き込みは常に利用側へ行われます。既存データの自動コピーは
+行いません。
+
+### 共有グローバル
+
+次の名前は意図的に変更せず、ライブラリ全体で共有されるグローバルとして扱います。
+
+- データベース経済のテーブル `shime_economy_accounts` / `shime_economy_transactions`
+- スコアボードの objective 名 `shime_sidebar`
+
+複数の利用側プラグインが同じデータベースやサーバーを共有する場合、これらのデータも共有されます。
+分離が必要な場合は、プラグインごとに別のデータベースまたは schema を用意してください。
+
 ## パッケージ構成
 
 ### `ShimePluginLibrary`
 
 | パッケージ | 内容 |
 | --- | --- |
-| `shimeapi` | `ShimeLibrary`、`ShimeContext`、`ShimeLifecycle`、`ShimeState`。 |
+| `shimeapi` | `ShimeLibrary`、`ShimePluginScope`、`ShimeContext`、`ShimeLifecycle`、`ShimeState`。 |
 | `shimeservice` | サービス SPI と依存解決レジストリ。 |
 | `shimeconfig` | YAML 設定、再読み込み、バックアップ、バージョン移行。 |
 | `shimecache` | TTL 付きメモリキャッシュ、ローディングキャッシュ、統計。 |
@@ -199,7 +257,7 @@ ShimePlugin.onDisable()
 
 - `ShimePluginLibrary`: サービスレジストリ、キャッシュ、SQL、スキーマ検証、整合性チェック、
   キャッシュ付きリポジトリ、経済、検証、ライフサイクル、タスク依存関係・タイムアウト、
-  プレイヤーセッション、GUI テンプレート・一覧、メッセージ検証、イベント購読。
+  プレイヤーセッション、GUI テンプレート・一覧、メッセージ検証、イベント購読、プラグインスコープ。
 - `ShimePluginCommand`: コマンドノード、ビルダー、引数パーサー、アノテーション定義、
   フック、監査ログ、実行統計。
 - `ShimePluginNMS`: アダプターレジストリ、バージョン判定（1.20.6 / 1.21.8）。

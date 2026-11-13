@@ -24,6 +24,7 @@ import shimeserver.shimepluginlibrary.shimeservice.ShimeServiceRegistry
 import shimeserver.shimepluginlibrary.shimestorage.ShimeStorageManager
 import shimeserver.shimepluginlibrary.shimetask.ShimeTaskManager
 import shimeserver.shimepluginlibrary.shimeworld.ShimeWorldService
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * ShimePluginLibrary の中心となる bootstrap 兼公開ファサード。
@@ -35,8 +36,19 @@ import shimeserver.shimepluginlibrary.shimeworld.ShimeWorldService
  * 構築時にはコアサービスが登録されるが初期化はされない。コマンドや NMS マネージャーなどの任意の
  * サービスを登録した後に [initialize] を呼び出すこと。[shutdown] はすべてのサービスを
  * 依存関係の逆順で解放し、ライブラリスケジューラー経由で作成されたタスクをキャンセルする。
+ *
+ * 新規コードでは [logger] や [configManager] などを直接参照するのではなく、[forPlugin] が返す
+ * [ShimePluginScope] を推奨する。スコープはログ接頭辞、保存先、タスクとリスナーの所有者を
+ * 利用側プラグインに揃える。既存のプロパティは 1.1.0 との互換性のために維持されている。
  */
 class ShimeLibrary(private val plugin: JavaPlugin) {
+    /**
+     * ライブラリ本体のロガー。
+     *
+     * このロガーの出力は `[ShimePluginLibrary]` の接頭辞で記録される。ライブラリ自身の内部ログには
+     * そのままでよいが、利用側プラグインの処理から出力する場合は [forPlugin] が返すスコープの
+     * [ShimePluginScope.logger] を使い、接頭辞を利用側プラグイン名に揃えること。
+     */
     val logger: ShimeLogger = ShimeLogger(plugin.logger)
     val scheduler: ShimeScheduler = ShimeScheduler(plugin, logger)
     val services: ShimeServiceRegistry = ShimeServiceRegistry(logger)
@@ -60,6 +72,7 @@ class ShimeLibrary(private val plugin: JavaPlugin) {
     val inventoryService = ShimeInventoryService(scheduler)
 
     private val lifecycle = ShimeLifecycle()
+    private val scopes = ConcurrentHashMap<JavaPlugin, ShimePluginScope>()
 
     /** 初期化時にサービスやモジュールへ渡される不変のコンテキスト。 */
     val context: ShimeContext = ShimeContext(plugin, this, logger, scheduler, plugin.dataFolder)
@@ -126,6 +139,7 @@ class ShimeLibrary(private val plugin: JavaPlugin) {
         try {
             logger.info(ShimeLogCategory.CORE, "Initializing ShimePluginLibrary ${plugin.pluginMeta.version}.")
             services.initializeAll(context)
+            plugin.server.pluginManager.registerEvents(ShimeScopeDisableListener(this), plugin)
             lifecycle.force(ShimeState.READY)
             instance = this
             logger.info(ShimeLogCategory.CORE, "ShimePluginLibrary is ready.")
@@ -148,6 +162,7 @@ class ShimeLibrary(private val plugin: JavaPlugin) {
             return
         }
         if (current == ShimeState.UNINITIALIZED) {
+            releaseAllScopes()
             scheduler.cancelAll()
             lifecycle.force(ShimeState.STOPPED)
             return
@@ -161,6 +176,7 @@ class ShimeLibrary(private val plugin: JavaPlugin) {
         try {
             services.shutdownAll()
         } finally {
+            releaseAllScopes()
             scheduler.cancelAll()
             lifecycle.force(ShimeState.STOPPED)
             if (instance === this) {
@@ -180,6 +196,45 @@ class ShimeLibrary(private val plugin: JavaPlugin) {
     fun serviceByName(name: String): ShimeService = services.requireByName(name)
 
     fun serviceStates(): Map<String, ShimeState> = services.snapshot()
+
+    /**
+     * [plugin] に紐づいたスコープを返す。
+     *
+     * 同じプラグインに対しては常に同じインスタンスを返す。スコープは利用側プラグインの
+     * `PluginDisableEvent`、または [ShimePluginScope.close] で解放される。解放後に再度呼び出すと
+     * 新しいインスタンスが作られる。
+     *
+     * このメソッドはスレッドセーフである。複数のスレッドから同時に呼ばれても、プラグインごとに
+     * 1 つのスコープだけが作られる。
+     */
+    fun forPlugin(plugin: JavaPlugin): ShimePluginScope {
+        return scopes.computeIfAbsent(plugin) { ShimePluginScope(it, this) }
+    }
+
+    /** 現在アクティブなスコープのスナップショット。診断用。 */
+    fun scopes(): List<ShimePluginScope> = scopes.values.toList()
+
+    /** 利用側プラグインに対応するスコープを解放し、キャッシュから取り除く。 */
+    internal fun releaseScope(plugin: JavaPlugin) {
+        scopes.remove(plugin)?.close()
+    }
+
+    /** 解放済みのスコープをキャッシュから取り除く。[ShimePluginScope.close] から呼ばれる。 */
+    internal fun forgetScope(scope: ShimePluginScope) {
+        scopes.remove(scope.plugin, scope)
+    }
+
+    private fun releaseAllScopes() {
+        val snapshot = scopes.values.toList()
+        scopes.clear()
+        snapshot.forEach { scope ->
+            try {
+                scope.close()
+            } catch (throwable: Throwable) {
+                logger.error(ShimeLogCategory.CORE, "Could not release the scope of '${scope.plugin.name}'.", throwable)
+            }
+        }
+    }
 
     companion object {
         @Volatile

@@ -5,7 +5,7 @@ plugins {
 group = 'shimeserver'
 version = '1.0.0'
 
-def shimeVersion = findProperty('shimeVersion') ?: '1.1.0'
+def shimeVersion = findProperty('shimeVersion') ?: '1.1.1'
 def artifactSource = findProperty('shimeArtifactSource') ?: 'github'
 
 repositories {

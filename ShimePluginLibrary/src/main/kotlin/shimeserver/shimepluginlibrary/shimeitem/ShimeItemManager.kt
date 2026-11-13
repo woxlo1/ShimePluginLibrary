@@ -30,7 +30,8 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class ShimeItemManager(
     private val plugin: JavaPlugin,
-    private val logger: ShimeLogger
+    private val logger: ShimeLogger,
+    legacyPlugin: JavaPlugin? = null
 ) : ShimeAbstractService(SERVICE_NAME), Listener {
     private val definitions = ConcurrentHashMap<String, ShimeItemDefinition>()
     private val cooldowns = ConcurrentHashMap<UUID, ConcurrentHashMap<String, Long>>()
@@ -38,7 +39,7 @@ class ShimeItemManager(
     private val playerUsage = ConcurrentHashMap<UUID, ConcurrentHashMap<String, AtomicLong>>()
     private val lastUsed = ConcurrentHashMap<UUID, ConcurrentHashMap<String, Long>>()
     private val disabled = ConcurrentHashMap<UUID, MutableSet<String>>()
-    private val identifier = ShimeItemIdentifier(plugin)
+    private val identifier = ShimeItemIdentifier(plugin, legacyPlugin)
 
     override fun onInitialize(context: ShimeContext) {
         plugin.server.pluginManager.registerEvents(this, plugin)

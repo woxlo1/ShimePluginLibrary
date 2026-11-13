@@ -24,6 +24,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  * これはすべてのコマンドを静的に列挙できないプラグインに有用である。動的コマンドはシャットダウン時に
  * 登録解除される。
  *
+ * 利用側プラグインは `logger` に `ShimeLibrary.forPlugin(plugin).logger` を渡すこと。ライブラリ本体の
+ * ロガーを渡すと、コマンドの診断メッセージが `[ShimePluginLibrary]` の接頭辞で記録されてしまう。
+ *
  * ルートコマンドが認識された時点で振り分けは常に true を返すため、検証に失敗しても Paper が独自の
  * 使用方法メッセージを出力することはない。
  */
@@ -103,6 +106,7 @@ class ShimeCommandManager(
      *
      * @param commandName Bukkit のコマンド名。既定ではルートノードの名前になる。
      * @param dynamic true の場合、`plugin.yml` に存在しないコマンドがサーバーのコマンドマップを通じて登録される。
+     *   このとき、フォールバックプレフィックスにはプラグイン名の小文字を使い、他のプラグインとの衝突を避ける。
      * @throws ShimeCommandException 名前が不正な場合、すでに登録済みの場合、または登録できない場合。
      */
     @JvmOverloads
@@ -141,7 +145,8 @@ class ShimeCommandManager(
                 root = root
             )
             root.permission?.let(command::setPermission)
-            if (!command.register(plugin.server.commandMap)) {
+            val fallbackPrefix = plugin.name.lowercase(Locale.ROOT)
+            if (!plugin.server.commandMap.register(fallbackPrefix, command)) {
                 throw ShimeCommandException("The server rejected registration of dynamic command '$normalized'.")
             }
             Binding(root, normalized, null, command)

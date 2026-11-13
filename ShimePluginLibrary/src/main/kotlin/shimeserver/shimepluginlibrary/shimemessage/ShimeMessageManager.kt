@@ -28,11 +28,15 @@ import java.util.concurrent.ConcurrentHashMap
  * キーはフラット形式 (`command.no-permission`) またはネストした YAML パス (`command.no-permission`)
  * のいずれかである。存在しないキーは一度だけ報告され、デフォルトロケールにフォールバックした後、
  * 最終的にはキー自体を返す。
+ *
+ * [fallbackDirectory] を指定すると、利用側プラグインの言語ファイルに存在しないロケールやキーを
+ * そのディレクトリから補完する。利用側の値が常に優先され、フォールバックは読み取り専用である。
  */
 class ShimeMessageManager(
     private val plugin: JavaPlugin,
     private val logger: ShimeLogger,
-    private val scheduler: ShimeScheduler
+    private val scheduler: ShimeScheduler,
+    private val fallbackDirectory: File? = null
 ) : ShimeAbstractService(SERVICE_NAME) {
     private val languages = ConcurrentHashMap<String, Map<String, String>>()
     private val missingKeys = ConcurrentHashMap.newKeySet<String>()
@@ -76,6 +80,24 @@ class ShimeMessageManager(
         saveDefaultLanguage("messages/en_US.yml", "en_US.yml")
         saveDefaultLanguage("messages/ja_JP.yml", "ja_JP.yml")
 
+        val loaded = HashMap(loadLanguages(directory))
+        fallbackDirectory?.takeIf { it != directory }?.let { fallback ->
+            loadLanguages(fallback).forEach { (locale, values) ->
+                val consumerValues = loaded[locale]
+                loaded[locale] = if (consumerValues == null) values else values + consumerValues
+            }
+        }
+        if (loaded.isEmpty()) {
+            logger.warn(ShimeLogCategory.MESSAGE, "No language files were loaded; messages will use their keys.")
+        }
+        languages.clear()
+        languages.putAll(loaded)
+        missingKeys.clear()
+        clearCache()
+        logger.info(ShimeLogCategory.MESSAGE, "Loaded ${languages.size} language file(s).")
+    }
+
+    private fun loadLanguages(directory: File): Map<String, Map<String, String>> {
         val loaded = HashMap<String, Map<String, String>>()
         directory.listFiles { file -> file.isFile && file.name.endsWith(".yml") }?.forEach { file ->
             val locale = normalizeLocale(file.nameWithoutExtension)
@@ -93,14 +115,7 @@ class ShimeMessageManager(
                 logger.error(ShimeLogCategory.MESSAGE, "Could not load language file '${file.name}'.", exception)
             }
         }
-        if (loaded.isEmpty()) {
-            logger.warn(ShimeLogCategory.MESSAGE, "No language files were loaded; messages will use their keys.")
-        }
-        languages.clear()
-        languages.putAll(loaded)
-        missingKeys.clear()
-        clearCache()
-        logger.info(ShimeLogCategory.MESSAGE, "Loaded ${languages.size} language file(s).")
+        return loaded
     }
 
     fun defaultLocale(): String = defaultLocaleCode

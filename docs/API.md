@@ -50,6 +50,7 @@ if (!library.isReady) {
 | --- | --- |
 | `get()` | 初期化済みインスタンスを返す。未初期化なら `ShimeLifecycleException`。 |
 | `getOrNull()` | 準備完了時のみインスタンスを返す。 |
+| `forPlugin(plugin)` | 利用側プラグイン専用の `ShimePluginScope` を返す。プラグインごとにキャッシュされ、無効化時に解放される。 |
 | `state` | `ShimeState`。 |
 | `isReady` | `state == READY`。 |
 | `context` | サービスへ渡される `ShimeContext`。 |
@@ -58,6 +59,46 @@ if (!library.isReady) {
 | `requireReady(operation)` | 準備完了でなければ例外。 |
 | `service(type)` / `serviceByName(name)` | 登録済みサービスを取得。 |
 | `serviceStates()` | サービス名と状態のスナップショット。 |
+
+### `ShimePluginScope`
+
+`ShimeLibrary.forPlugin(plugin)` は、利用側プラグインに紐づくサービス一式を返します。同じプラグインには
+同じインスタンスが返され、利用側プラグインの `PluginDisableEvent` と `ShimeLibrary.shutdown()` で
+自動的に解放されます。スコープを明示的に破棄する場合は `close()` を呼び出します。
+
+```kotlin
+class SamplePlugin : JavaPlugin() {
+    private lateinit var shime: ShimePluginScope
+
+    override fun onEnable() {
+        shime = ShimeLibrary.get().forPlugin(this)
+
+        val config = shime.configManager.create("sample", "sample.yml")
+        shime.eventManager.registerListener(SampleListener())
+        shime.scheduler.runRepeating(0L, 20L) {
+            // 利用側プラグインが所有するタスク
+        }
+    }
+}
+```
+
+| プロパティ | 説明 |
+| --- | --- |
+| `logger` | 利用側プラグインのロガーを使う `ShimeLogger`。 |
+| `scheduler` | 利用側プラグインが所有するタスク。スコープ解放時にすべてキャンセル。 |
+| `configManager` | 利用側のデータフォルダと JAR を使う設定マネージャー。 |
+| `eventManager` | 利用側を所有者として登録するリスナーと購読。 |
+| `storageManager` | 利用側の `storage/` 配下に保存するストレージマネージャー。 |
+| `messageManager` | 利用側の `messages/` を優先するメッセージマネージャー。 |
+| `itemManager` | 利用側の名前空間でアイテムを識別するマネージャー。初回アクセス時に生成。 |
+| `entityService` | 利用側の名前空間でエンティティをタグ付けするサービス。初回アクセス時に生成。 |
+| `close()` | スコープが所有するサービスを生成の逆順で停止する。冪等。 |
+| `isClosed` | スコープが解放済みかどうか。 |
+
+データベース、キャッシュ、GUI、プレイヤー、スコアボード、経済などの共有サービスはスコープに含まれず、
+従来どおり `ShimeLibrary` のプロパティから利用します。既存の `library.logger` や
+`library.configManager` もそのまま動作しますが、利用側プラグイン固有のデータを扱う新しいコードでは
+`forPlugin(this)` の利用を推奨します。
 
 ### `ShimeContext`
 
@@ -194,6 +235,9 @@ val json = library.storageManager.createJson("records", MyRecord::class.java)
 - `ShimeJsonStorage` は Gson を使用します。
 - キーは検証され、ディレクトリ外へのパス脱出は拒否されます。
 - 書き込みは一時ファイル経由で行われ、可能な限り原子的に置き換えます。
+- スコープの `storageManager` は利用側プラグインの `storage/` 配下へ保存します。1.1.0 以前に
+  ライブラリの共有 `storage/` へ保存されたデータは、同名ストレージに限り読み取り専用の
+  フォールバックとして参照されます。新しい書き込みは常に利用側へ行われます。
 
 ## データベース
 
@@ -323,6 +367,8 @@ library.messageManager.sendBossBar(player, "sample.bossbar", durationMillis = 3_
 - `configure(defaultLocale, usePrefix)` で既定ロケールとプレフィックスを設定します。
 - `reload()` で `messages/` を再読み込みします。
 - `missingKeys()` で未定義キーを確認できます。
+- スコープの `messageManager` は利用側プラグインの `messages/` を優先し、存在しないロケールとキーだけ
+  ライブラリの共有 `messages/` から補完します。利用側の値が常に優先されます。
 
 #### テンプレートと検証
 
@@ -545,6 +591,12 @@ val definition = library.itemManager.identify(item)
 `ShimeItemIdentifier` はアイテムにカスタム ID を付与・取得します。
 `ShimeItemSerializer` は `ItemStack` を Map、YAML 文字列へ変換し、また復元します。
 
+スコープの `itemManager` は新しいタグを利用側プラグインの名前空間
+(`<plugin>:item_id`、`<plugin>:item_version`、`<plugin>:item_instance`、`<plugin>:item_owner`) へ
+書き込みます。1.1.0 以前の `shimepluginlibrary:*` タグも読み取れるため、既存のカスタムアイテムは
+そのまま識別できます。`newInstance = false` で再タグ付けした場合は、旧名前空間のインスタンス ID を
+引き継ぎます。
+
 ## GUI
 
 ### `ShimeGUI`
@@ -682,6 +734,11 @@ library.scoreboardManager.hide(player)
 サイドバーはプレイヤーごとに管理され、退出時に自動で解除されます。
 描画はメインスレッドで行ってください。
 
+スコアボードの objective 名はライブラリ全体で `shime_sidebar` に固定されています。これは共有の
+グローバル名であり、複数の利用側プラグインが同時にサイドバーを表示すると同じ objective を共有します。
+プラグイン固有の表示を分離したい場合は、`id` の異なる `ShimeSidebar` を用意するだけでは
+objective は分かれないため、現時点では排他的な利用を前提にしてください。
+
 ## 経済
 
 ### `ShimeEconomyManager`
@@ -700,6 +757,11 @@ val history = library.economyManager.history(account, limit = 20)
 既定では `ShimeInMemoryEconomyService` が使用されます。データベースを有効にした場合、
 `ShimeDatabaseEconomyService` を `setProvider(provider, persistent = true)` で設定できます。
 `ShimeTransactionResult` は成功可否、取引 ID、残高、理由、タイムスタンプを返します。
+
+データベース経済のテーブル名は `shime_economy_accounts` と `shime_economy_transactions` に固定されて
+おり、ライブラリ全体で共有されるグローバルな名前です。複数の利用側プラグインが同じデータベースへ
+接続すると口座と取引履歴を共有します。通貨を分離したい場合は、プラグインごとに別のデータベースまたは
+別の schema を用意してください。
 
 ## ワールドとエンティティ
 
@@ -724,6 +786,10 @@ library.entityService.removeSafely(entity)
 ```
 
 タグと所有者は永続データに保存されます。
+
+スコープの `entityService` は新しいタグを利用側プラグインの名前空間
+(`<plugin>:entity_tag`、`<plugin>:entity_owner`) へ書き込み、旧 `shimepluginlibrary:*` タグも
+読み取ります。所有者を `null` にすると両方の名前空間から削除されます。
 
 ## インベントリ
 
@@ -779,7 +845,7 @@ commands.register(root, dynamic = true)
 `ShimeCommandManager` は次を行います。
 
 - `plugin.yml` の `PluginCommand` へ executor / tab completer を設定。
-- 動的登録時は Paper の `CommandMap` を使用。
+- 動的登録時は Paper の `CommandMap` を使用し、フォールバックプレフィックスにプラグイン名の小文字を使う。
 - ノードごとの権限チェック（`CommandSender.hasPermission`）。
 - 送信者種別（任意 / プレイヤー / コンソール）。
 - クールダウンと期間内実行回数制限。
